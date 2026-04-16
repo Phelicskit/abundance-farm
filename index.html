@@ -1,0 +1,2093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Abundance Farm">
+<meta name="theme-color" content="#1F2D1E">
+<link rel="apple-touch-icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='40' fill='%231F2D1E'/><text x='50%25' y='58%25' font-family='Georgia,serif' font-size='90' font-weight='700' text-anchor='middle' fill='%23E8C168'>A</text></svg>">
+<title>Abundance Farm</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..900,0..100&family=DM+Sans:opsz,wght@9..40,300..700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F5F0E1;
+    --bg-elev: #FBF7EC;
+    --bg-card: #FFFFFF;
+    --ink: #1F2D1E;
+    --ink-soft: #4A5C45;
+    --ink-mute: #8B9684;
+    --line: #E5DCC5;
+    --line-strong: #C9BC9F;
+    --rice: #2D4A2B;
+    --rice-soft: #DCE7D7;
+    --corn: #C4633F;
+    --corn-soft: #F4DCC9;
+    --gold: #C99B3F;
+    --gold-soft: #F2E5C0;
+    --danger: #9B2C2C;
+    --danger-soft: #F4D4D4;
+    --warn: #D4A24C;
+    --warn-soft: #FBEACA;
+    --safe: #5C7A2F;
+    --safe-soft: #DEE9C8;
+    --shadow: 0 1px 2px rgba(31,45,30,.04), 0 8px 24px rgba(31,45,30,.06);
+    --radius: 14px;
+    --radius-sm: 8px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-top: env(safe-area-inset-top, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+  body {
+    font-family: 'DM Sans', -apple-system, system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: none;
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding-bottom: calc(80px + var(--safe-bottom));
+  }
+  .display { font-family: 'Fraunces', Georgia, serif; font-variation-settings: 'opsz' 144, 'SOFT' 0; letter-spacing: -0.02em; }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+  /* HEADER */
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    padding: calc(var(--safe-top) + 14px) 20px 14px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+  }
+  .header-row { display: flex; align-items: center; justify-content: space-between; }
+  .brand {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 600;
+    font-size: 20px;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    line-height: 1;
+  }
+  .brand .accent { color: var(--corn); font-style: italic; }
+  .brand-sub {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 11px;
+    color: var(--ink-mute);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+  .risk-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 100px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .risk-pill .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .risk-low { background: var(--safe-soft); color: var(--safe); }
+  .risk-low .dot { background: var(--safe); }
+  .risk-med { background: var(--warn-soft); color: #8A6418; }
+  .risk-med .dot { background: var(--warn); }
+  .risk-high { background: var(--danger-soft); color: var(--danger); }
+  .risk-high .dot { background: var(--danger); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* VIEWS */
+  main { padding: 0; }
+  .view { display: none; padding: 8px 16px 32px; animation: fadeIn 0.3s ease; }
+  .view.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* CARDS */
+  .card {
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    padding: 18px;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--line);
+  }
+  .card-tight { padding: 14px; }
+  .card-flush { padding: 0; overflow: hidden; }
+
+  .label {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .h1 { font-family: 'Fraunces', serif; font-weight: 500; font-size: 32px; line-height: 1.1; letter-spacing: -0.02em; margin: 0 0 4px; }
+  .h2 { font-family: 'Fraunces', serif; font-weight: 500; font-size: 22px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .h3 { font-family: 'DM Sans', sans-serif; font-weight: 600; font-size: 14px; margin: 0 0 4px; }
+  .meta { font-size: 13px; color: var(--ink-soft); }
+
+  /* SECTION HEADER */
+  .section-head {
+    padding: 18px 4px 10px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  .section-title { font-family: 'Fraunces', serif; font-weight: 500; font-size: 24px; letter-spacing: -0.02em; }
+  .section-sub { font-size: 11px; color: var(--ink-mute); letter-spacing: 0.1em; text-transform: uppercase; }
+
+  /* TODAY HERO */
+  .hero {
+    background: linear-gradient(135deg, #1F2D1E 0%, #2D4A2B 100%);
+    color: #F5F0E1;
+    border: none;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle at 80% 20%, rgba(232,193,104,0.08) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  .hero-date {
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: rgba(245,240,225,0.6);
+    margin-bottom: 8px;
+  }
+  .hero-month {
+    font-family: 'Fraunces', serif;
+    font-weight: 300;
+    font-size: 56px;
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    color: #F5F0E1;
+    font-variation-settings: 'opsz' 144, 'SOFT' 30;
+  }
+  .hero-month em {
+    font-style: italic;
+    color: #E8C168;
+    font-weight: 400;
+  }
+  .hero-tagline {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 300;
+    font-size: 17px;
+    color: rgba(245,240,225,0.8);
+    margin-top: 12px;
+    line-height: 1.4;
+  }
+
+  /* PRIORITY GRID */
+  .priority-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .priority {
+    background: var(--bg-card);
+    border-radius: var(--radius-sm);
+    padding: 14px;
+    border: 1px solid var(--line);
+    position: relative;
+    overflow: hidden;
+  }
+  .priority-rice { border-left: 3px solid var(--rice); }
+  .priority-corn { border-left: 3px solid var(--corn); }
+  .priority-risk { border-left: 3px solid var(--danger); }
+  .priority-price { border-left: 3px solid var(--gold); }
+  .priority .label { font-size: 9px; margin-bottom: 6px; }
+  .priority .value { font-family: 'Fraunces', serif; font-size: 18px; font-weight: 500; line-height: 1.2; letter-spacing: -0.01em; }
+  .priority .value-sm { font-size: 14px; font-weight: 500; }
+
+  /* TASK LIST */
+  .task-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+    cursor: pointer;
+  }
+  .task-row:last-child { border-bottom: none; }
+  .checkbox {
+    width: 22px;
+    height: 22px;
+    border: 1.5px solid var(--line-strong);
+    border-radius: 6px;
+    flex-shrink: 0;
+    margin-top: 1px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    background: var(--bg-card);
+  }
+  .task-row.done .checkbox {
+    background: var(--rice);
+    border-color: var(--rice);
+  }
+  .task-row.done .checkbox::after {
+    content: '✓';
+    color: white;
+    font-size: 14px;
+    font-weight: 700;
+  }
+  .task-row.done .task-text {
+    color: var(--ink-mute);
+    text-decoration: line-through;
+    text-decoration-color: var(--ink-mute);
+  }
+  .task-text { font-size: 14px; line-height: 1.4; flex: 1; }
+  .task-tag {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .tag-rice { background: var(--rice-soft); color: var(--rice); }
+  .tag-corn { background: var(--corn-soft); color: var(--corn); }
+  .tag-urgent { background: var(--danger-soft); color: var(--danger); }
+  .tag-money { background: var(--gold-soft); color: #8A6418; }
+
+  /* CALENDAR */
+  .month-card {
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .month-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--line);
+  }
+  .month-head.current {
+    background: linear-gradient(135deg, var(--rice) 0%, #1F2D1E 100%);
+    color: #F5F0E1;
+  }
+  .month-head.current .month-name { color: #F5F0E1; }
+  .month-head.current .month-num { color: #E8C168; }
+  .month-name { font-family: 'Fraunces', serif; font-size: 22px; font-weight: 500; letter-spacing: -0.01em; }
+  .month-num { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ink-mute); font-weight: 600; }
+  .month-body { padding: 14px 18px; }
+  .activity-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    font-size: 13px;
+  }
+  .activity-row:not(:last-child) { border-bottom: 1px dashed var(--line); }
+  .activity-bar {
+    width: 4px;
+    height: 28px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .activity-rice { background: var(--rice); }
+  .activity-corn { background: var(--corn); }
+  .activity-text { flex: 1; }
+  .activity-stage {
+    font-size: 10px;
+    color: var(--ink-mute);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+  }
+  .activity-name { font-weight: 500; }
+  .activity-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .icon-plant { background: var(--safe-soft); color: var(--safe); }
+  .icon-grow { background: var(--gold-soft); color: #8A6418; }
+  .icon-harvest { background: var(--corn-soft); color: var(--corn); }
+  .icon-sell-good { background: var(--safe); color: white; }
+  .icon-sell-bad { background: var(--danger-soft); color: var(--danger); }
+  .icon-sell-hold { background: var(--gold-soft); color: #8A6418; }
+
+  /* CROP TOGGLE */
+  .toggle {
+    display: flex;
+    background: var(--bg-elev);
+    border-radius: 100px;
+    padding: 4px;
+    margin-bottom: 16px;
+    border: 1px solid var(--line);
+  }
+  .toggle button {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 10px 16px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--ink-mute);
+    border-radius: 100px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .toggle button.active {
+    background: var(--ink);
+    color: var(--bg);
+  }
+
+  /* STAGE TIMELINE */
+  .stage {
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    gap: 14px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .stage:last-child { border-bottom: none; }
+  .stage-marker {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .stage-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--rice-soft);
+    color: var(--rice);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .stage.corn .stage-num { background: var(--corn-soft); color: var(--corn); }
+  .stage-line {
+    flex: 1;
+    width: 2px;
+    background: var(--line);
+    margin-top: 6px;
+  }
+  .stage:last-child .stage-line { display: none; }
+  .stage-name { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+  .stage-dates { font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
+  .stage-desc { font-size: 12px; color: var(--ink-mute); line-height: 1.5; }
+  .stage-input {
+    display: inline-block;
+    font-size: 11px;
+    background: var(--bg-elev);
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-top: 6px;
+    color: var(--ink-soft);
+    border: 1px solid var(--line);
+  }
+
+  /* PRICE TABLE */
+  .price-month {
+    display: grid;
+    grid-template-columns: 50px 1fr 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .price-month:last-child { border-bottom: none; }
+  .price-month.current {
+    background: linear-gradient(90deg, var(--gold-soft) 0%, transparent 100%);
+  }
+  .pm-name {
+    font-family: 'Fraunces', serif;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .pm-data { display: flex; flex-direction: column; gap: 2px; }
+  .pm-crop { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-mute); font-weight: 600; }
+  .pm-price { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600; }
+  .pm-action {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 4px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .action-sell { background: var(--safe); color: white; }
+  .action-hold { background: var(--gold-soft); color: #8A6418; }
+  .action-avoid { background: var(--danger-soft); color: var(--danger); }
+
+  /* CALCULATOR */
+  .calc {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .calc-input { grid-column: span 2; }
+  .calc input {
+    width: 100%;
+    padding: 14px 16px;
+    border: 1.5px solid var(--line);
+    border-radius: var(--radius-sm);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    background: var(--bg-elev);
+    color: var(--ink);
+    font-weight: 600;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .calc input:focus {
+    outline: none;
+    border-color: var(--rice);
+    background: var(--bg-card);
+  }
+  .calc-label {
+    display: block;
+    font-size: 11px;
+    color: var(--ink-mute);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .calc-result {
+    grid-column: span 2;
+    background: var(--rice);
+    color: white;
+    padding: 18px;
+    border-radius: var(--radius-sm);
+    text-align: center;
+  }
+  .calc-result-label {
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    opacity: 0.7;
+    margin-bottom: 6px;
+  }
+  .calc-result-value {
+    font-family: 'Fraunces', serif;
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .calc-result-sub {
+    font-size: 12px;
+    margin-top: 8px;
+    opacity: 0.8;
+  }
+
+  /* TYPHOON */
+  .typhoon-bar {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 2px;
+    margin: 14px 0;
+  }
+  .typhoon-bar > div {
+    height: 32px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    color: white;
+    letter-spacing: 0.05em;
+  }
+  .tb-low { background: var(--safe); }
+  .tb-med { background: var(--warn); color: #5A4310; }
+  .tb-high { background: var(--danger); }
+
+  .typhoon-event {
+    display: grid;
+    grid-template-columns: 60px 1fr;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .typhoon-event:last-child { border-bottom: none; }
+  .te-year {
+    font-family: 'Fraunces', serif;
+    font-size: 24px;
+    font-weight: 400;
+    color: var(--danger);
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .te-month {
+    font-size: 10px;
+    color: var(--ink-mute);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+  }
+  .te-name { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+  .te-impact { font-size: 12px; color: var(--ink-soft); line-height: 1.5; }
+
+  /* TASK MONTH SELECTOR */
+  .month-selector {
+    display: flex;
+    overflow-x: auto;
+    gap: 8px;
+    padding: 4px 0 12px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .month-selector::-webkit-scrollbar { display: none; }
+  .month-selector button {
+    flex-shrink: 0;
+    padding: 10px 16px;
+    border: 1.5px solid var(--line);
+    background: var(--bg-card);
+    border-radius: 100px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    cursor: pointer;
+    letter-spacing: 0.02em;
+  }
+  .month-selector button.active {
+    background: var(--ink);
+    color: var(--bg);
+    border-color: var(--ink);
+  }
+  .month-selector button.has-tasks {
+    border-color: var(--rice);
+  }
+
+  /* BOTTOM NAV */
+  nav.bottom {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(251, 247, 236, 0.92);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-top: 1px solid var(--line);
+    padding: 8px 0 var(--safe-bottom);
+    z-index: 100;
+    display: flex;
+    justify-content: space-around;
+  }
+  nav.bottom button {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 8px 4px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--ink-mute);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    letter-spacing: 0.02em;
+    transition: color 0.15s ease;
+  }
+  nav.bottom button.active { color: var(--rice); }
+  .nav-icon {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .nav-icon svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+
+  /* WELCOME */
+  .welcome-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(31, 45, 30, 0.7);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 200;
+    display: flex;
+    align-items: flex-end;
+    padding: 20px;
+  }
+  .welcome-card {
+    background: var(--bg-card);
+    border-radius: 20px;
+    padding: 28px 24px calc(28px + var(--safe-bottom));
+    width: 100%;
+    box-shadow: 0 -10px 40px rgba(0,0,0,0.2);
+  }
+  .welcome-card h2 {
+    font-family: 'Fraunces', serif;
+    font-size: 28px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    margin: 0 0 8px;
+  }
+  .welcome-card h2 em { font-style: italic; color: var(--corn); }
+  .welcome-card p {
+    color: var(--ink-soft);
+    font-size: 14px;
+    line-height: 1.6;
+    margin: 12px 0;
+  }
+  .welcome-step {
+    display: flex;
+    gap: 12px;
+    padding: 12px;
+    background: var(--bg-elev);
+    border-radius: var(--radius-sm);
+    margin: 8px 0;
+    align-items: center;
+  }
+  .welcome-step-num {
+    background: var(--rice);
+    color: white;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .welcome-step-text { font-size: 13px; color: var(--ink); }
+  .btn {
+    width: 100%;
+    background: var(--ink);
+    color: var(--bg);
+    border: none;
+    padding: 16px;
+    border-radius: var(--radius-sm);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 14px;
+    letter-spacing: 0.02em;
+  }
+
+  /* DIVIDER */
+  .divider {
+    text-align: center;
+    margin: 22px 0 14px;
+    position: relative;
+  }
+  .divider::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--line);
+  }
+  .divider span {
+    background: var(--bg);
+    padding: 0 14px;
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 13px;
+    color: var(--ink-mute);
+    position: relative;
+  }
+
+  /* HINT */
+  .hint {
+    background: var(--gold-soft);
+    border-left: 3px solid var(--gold);
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    color: #6F5219;
+    line-height: 1.5;
+    margin-bottom: 14px;
+  }
+  .hint strong { color: #5A4310; }
+
+  /* EMPTY STATE */
+  .empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--ink-mute);
+  }
+  .empty .h2 { color: var(--ink-soft); margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-row">
+    <div>
+      <div class="brand">Abundance <span class="accent">Farm</span></div>
+      <div class="brand-sub" id="todaysDate">Loading…</div>
+    </div>
+    <div class="risk-pill" id="riskBadge"><span class="dot"></span><span id="riskBadgeText">—</span></div>
+  </div>
+</header>
+
+<main>
+
+  <!-- VIEW: TODAY -->
+  <section class="view active" id="view-today">
+    <div class="card hero">
+      <div class="hero-date" id="heroDate">—</div>
+      <div class="hero-month">
+        <span id="heroMonth">—</span><br>
+        <em id="heroYear">—</em>
+      </div>
+      <div class="hero-tagline" id="heroTagline">—</div>
+    </div>
+
+    <div class="priority-grid">
+      <div class="priority priority-rice">
+        <div class="label">Rice</div>
+        <div class="value" id="todayRice">—</div>
+      </div>
+      <div class="priority priority-corn">
+        <div class="label">Corn</div>
+        <div class="value" id="todayCorn">—</div>
+      </div>
+      <div class="priority priority-price">
+        <div class="label">Price Action</div>
+        <div class="value-sm" id="todayPrice">—</div>
+      </div>
+      <div class="priority priority-risk">
+        <div class="label">Typhoon</div>
+        <div class="value-sm" id="todayRisk">—</div>
+      </div>
+    </div>
+
+    <div class="card" id="weatherCard">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+        <div class="label" style="margin-bottom:0;">7-Day Forecast · Santa Maria</div>
+        <div class="label" id="weatherUpdated" style="margin-bottom:0;font-size:9px;">—</div>
+      </div>
+      <div id="weatherStrip" style="display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;">
+        <div style="color:var(--ink-mute);font-size:13px;padding:8px;">Loading forecast…</div>
+      </div>
+      <div id="cornAdvice" style="margin-top:12px;display:none;"></div>
+    </div>
+
+    <div class="card">
+      <div class="label">This Month's Critical Tasks</div>
+      <div id="todayTasks"></div>
+    </div>
+
+    <div class="card">
+      <div class="label">Field Reference</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px;color:var(--ink-soft);">
+        <div><strong style="color:var(--ink);display:block;margin-bottom:2px;">Location</strong>San Isidro West, Santa Maria, Isabela</div>
+        <div><strong style="color:var(--ink);display:block;margin-bottom:2px;">Total Area</strong>35 hectares</div>
+        <div><strong style="color:var(--ink);display:block;margin-bottom:2px;">Climate Type</strong>PAGASA Type III</div>
+        <div><strong style="color:var(--ink);display:block;margin-bottom:2px;">Rice Water</strong>Deep well</div>
+        <div style="grid-column:span 2;"><strong style="color:var(--corn);display:block;margin-bottom:2px;">Corn Water</strong>Rainfed only — monitor forecast before land prep & planting</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VIEW: CALENDAR -->
+  <section class="view" id="view-calendar">
+    <div class="section-head">
+      <div class="section-title">Annual Calendar</div>
+      <div class="section-sub">Year-Round Plan</div>
+    </div>
+    <div class="hint">
+      <strong>Reading the calendar:</strong> Green bars = rice activities. Orange bars = corn. Tap activities to see details for that month.
+    </div>
+    <div id="calendarBody"></div>
+  </section>
+
+  <!-- VIEW: CROPS -->
+  <section class="view" id="view-crops">
+    <div class="section-head">
+      <div class="section-title">Crop Schedules</div>
+      <div class="section-sub">Stage by Stage</div>
+    </div>
+
+    <div class="toggle">
+      <button class="active" data-crop="rice-dry">Rice Dry</button>
+      <button data-crop="rice-wet">Rice Wet</button>
+      <button data-crop="corn-1">Corn 1st</button>
+      <button data-crop="corn-2">Corn 2nd</button>
+    </div>
+
+    <div class="card" id="cropDetail"></div>
+
+    <div class="card">
+      <div class="label">Recommended Varieties</div>
+      <div id="varietyList"></div>
+    </div>
+  </section>
+
+  <!-- VIEW: PRICES -->
+  <section class="view" id="view-prices">
+    <div class="section-head">
+      <div class="section-title">Farmgate Prices</div>
+      <div class="section-sub">Sell or Hold?</div>
+    </div>
+
+    <div class="card">
+      <div class="label">Quick Revenue Calculator</div>
+      <div class="calc">
+        <div class="calc-input">
+          <label class="calc-label">Quantity (kg)</label>
+          <input type="number" id="calcQty" placeholder="e.g. 5000" inputmode="numeric">
+        </div>
+        <div>
+          <label class="calc-label">Offered ₱/kg</label>
+          <input type="number" id="calcPrice" placeholder="e.g. 22" inputmode="decimal" step="0.5">
+        </div>
+        <div>
+          <label class="calc-label">Cost ₱/kg</label>
+          <input type="number" id="calcCost" placeholder="e.g. 11" inputmode="decimal" step="0.5">
+        </div>
+        <div class="calc-result">
+          <div class="calc-result-label">Net Profit</div>
+          <div class="calc-result-value" id="calcResult">₱0</div>
+          <div class="calc-result-sub" id="calcMargin">Enter values above</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">Log Prices (Today or Backdate)</div>
+      <p style="font-size:12px;color:var(--ink-mute);margin:0 0 12px;line-height:1.5;">
+        Enter a single price (<strong>22</strong>) or a range (<strong>22-25</strong>) — ranges are auto-averaged. Leave blank if not offered.
+      </p>
+      <div class="calc">
+        <div class="calc-input">
+          <label class="calc-label">Date</label>
+          <input type="date" id="logDate">
+        </div>
+        <div>
+          <label class="calc-label">Palay Fresh (₱/kg)</label>
+          <input type="text" id="logPalayFresh" placeholder="e.g. 18 or 16-19" inputmode="text">
+        </div>
+        <div>
+          <label class="calc-label">Palay Dry (₱/kg)</label>
+          <input type="text" id="logPalayDry" placeholder="e.g. 22 or 22-25" inputmode="text">
+        </div>
+        <div>
+          <label class="calc-label">Corn Fresh (₱/kg)</label>
+          <input type="text" id="logCornFresh" placeholder="e.g. 14 or 13-15" inputmode="text">
+        </div>
+        <div>
+          <label class="calc-label">Corn Dry (₱/kg)</label>
+          <input type="text" id="logCornDry" placeholder="e.g. 18 or 17-19" inputmode="text">
+        </div>
+      </div>
+      <button class="btn" onclick="logPrice()">Save Price Entry</button>
+      <div id="priceLog" style="margin-top:14px;"></div>
+    </div>
+
+    <div class="card card-flush">
+      <div class="label" style="padding:14px 16px 6px;">Palay (Dry) — Monthly Pattern</div>
+      <div id="palayPrices"></div>
+    </div>
+
+    <div class="card card-flush">
+      <div class="label" style="padding:14px 16px 6px;">Yellow Corn — Monthly Pattern</div>
+      <div id="cornPrices"></div>
+    </div>
+
+    <div class="hint">
+      <strong>Pattern:</strong> Both crops crash during harvest glut (Sep–Nov palay, Aug–Sep corn). Lean-month sales (May–Aug palay, Apr–May corn) capture 25–35% premium.
+    </div>
+  </section>
+
+  <!-- VIEW: WEATHER -->
+  <section class="view" id="view-risk">
+    <div class="section-head">
+      <div class="section-title">Weather & Risk</div>
+      <div class="section-sub" id="weatherStatus">Live · Santa Maria</div>
+    </div>
+
+    <div class="card hero" id="weatherHero">
+      <div class="hero-date">Right Now</div>
+      <div class="hero-month" style="font-size:42px;line-height:1;" id="weatherNow">—</div>
+      <div class="hero-tagline" id="weatherSummary">Loading current conditions…</div>
+    </div>
+
+    <div class="card">
+      <div class="label">Best Windows · Next 14 Days</div>
+      <div id="weatherWindows" style="margin-top:8px;">
+        <div style="color:var(--ink-mute);font-size:13px;">Analyzing forecast…</div>
+      </div>
+    </div>
+
+    <div class="card card-flush">
+      <div class="label" style="padding:14px 16px 6px;">14-Day Forecast</div>
+      <div id="weatherForecast" style="padding:0 16px 14px;">
+        <div style="color:var(--ink-mute);font-size:13px;padding:8px 0;">Loading…</div>
+      </div>
+      <button class="btn" style="margin:0 16px 16px;width:calc(100% - 32px);background:var(--bg-card);color:var(--ink-soft);border:1px solid var(--line);" onclick="fetchWeather(true)">Refresh Forecast</button>
+    </div>
+
+    <div class="divider"><span>Annual Risk</span></div>
+
+    <div class="card">
+      <div class="label">12-Month Typhoon Risk Profile</div>
+      <div class="typhoon-bar">
+        <div class="tb-low">J</div>
+        <div class="tb-low">F</div>
+        <div class="tb-low">M</div>
+        <div class="tb-low">A</div>
+        <div class="tb-low">M</div>
+        <div class="tb-med">J</div>
+        <div class="tb-med">J</div>
+        <div class="tb-med">A</div>
+        <div class="tb-high">S</div>
+        <div class="tb-high">O</div>
+        <div class="tb-high">N</div>
+        <div class="tb-med">D</div>
+      </div>
+      <div style="display:flex;gap:14px;font-size:11px;color:var(--ink-mute);justify-content:center;margin-top:8px;">
+        <span><span style="display:inline-block;width:10px;height:10px;background:var(--safe);border-radius:2px;vertical-align:middle;margin-right:4px;"></span>Low</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:var(--warn);border-radius:2px;vertical-align:middle;margin-right:4px;"></span>Medium</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:var(--danger);border-radius:2px;vertical-align:middle;margin-right:4px;"></span>High</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">Critical Rule</div>
+      <p style="font-family:'Fraunces',serif;font-size:18px;font-weight:400;line-height:1.4;color:var(--ink);margin:6px 0 0;letter-spacing:-0.01em;">
+        Any crop standing in the field <em style="color:var(--danger);">between September 15 and November 30</em> must be insured by PCIC.
+      </p>
+    </div>
+
+    <div class="card card-flush">
+      <div class="label" style="padding:14px 16px 6px;">Recent Typhoon History</div>
+      <div style="padding:0 16px 16px;" id="typhoonHistory"></div>
+    </div>
+  </section>
+
+  <!-- VIEW: TASKS -->
+  <section class="view" id="view-tasks">
+    <div class="section-head">
+      <div class="section-title">Monthly Tasks</div>
+      <div class="section-sub" id="tasksProgress">0 of 0</div>
+    </div>
+
+    <div class="month-selector" id="monthSelector"></div>
+
+    <div class="card" id="tasksContainer"></div>
+
+    <button class="btn" style="background:var(--bg-card);color:var(--ink-soft);border:1px solid var(--line);" onclick="resetMonth()">Reset This Month</button>
+  </section>
+
+</main>
+
+<nav class="bottom">
+  <button class="active" data-view="today">
+    <div class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+    Today
+  </button>
+  <button data-view="calendar">
+    <div class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg></div>
+    Calendar
+  </button>
+  <button data-view="crops">
+    <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 22V8M12 8c-3 0-5-2-5-5 3 0 5 2 5 5zM12 8c3 0 5-2 5-5-3 0-5 2-5 5zM12 14c-3 0-5-2-5-5M12 14c3 0 5-2 5-5"/></svg></div>
+    Crops
+  </button>
+  <button data-view="prices">
+    <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+    Prices
+  </button>
+  <button data-view="risk">
+    <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M17.5 19a4.5 4.5 0 1 0-1.4-8.78A6 6 0 1 0 6 14"/><path d="M8 19l-1 3M12 19l-1 3M16 19l-1 3"/></svg></div>
+    Weather
+  </button>
+  <button data-view="tasks">
+    <div class="nav-icon"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+    Tasks
+  </button>
+</nav>
+
+<!-- WELCOME OVERLAY -->
+<div class="welcome-overlay" id="welcome" style="display:none;">
+  <div class="welcome-card">
+    <h2>Install on <em>your iPhone</em></h2>
+    <p>For the best experience, add this app to your home screen — it'll launch full-screen with its own icon, like a native app.</p>
+    <div class="welcome-step">
+      <div class="welcome-step-num">1</div>
+      <div class="welcome-step-text">Tap the <strong>Share</strong> button in Safari (square with up arrow)</div>
+    </div>
+    <div class="welcome-step">
+      <div class="welcome-step-num">2</div>
+      <div class="welcome-step-text">Scroll down and tap <strong>Add to Home Screen</strong></div>
+    </div>
+    <div class="welcome-step">
+      <div class="welcome-step-num">3</div>
+      <div class="welcome-step-text">Tap <strong>Add</strong> — the app appears on your home screen</div>
+    </div>
+    <button class="btn" onclick="dismissWelcome()">Got it</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// DATA
+// ============================================================
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+const RISK_LEVELS = ['low','low','low','low','low','med','med','med','high','high','high','med'];
+
+const PALAY_PRICES = [
+  {month:'Jan', price:19, action:'hold', note:'Post-harvest firming'},
+  {month:'Feb', price:20, action:'sell', note:'Pre-dry-harvest peak'},
+  {month:'Mar', price:19, action:'hold', note:'Dry-harvest begins'},
+  {month:'Apr', price:18, action:'hold', note:'Glut starts'},
+  {month:'May', price:19, action:'sell', note:'Lean season firming'},
+  {month:'Jun', price:21, action:'sell', note:'Lean season ★'},
+  {month:'Jul', price:22, action:'sell', note:'Near peak ★'},
+  {month:'Aug', price:22, action:'sell', note:'PEAK ★★'},
+  {month:'Sep', price:17, action:'avoid', note:'Wet harvest glut'},
+  {month:'Oct', price:16, action:'avoid', note:'Worst month'},
+  {month:'Nov', price:17, action:'avoid', note:'Glut continues'},
+  {month:'Dec', price:18, action:'hold', note:'Year-end pickup'},
+];
+
+const CORN_PRICES = [
+  {month:'Jan', price:16.5, action:'hold', note:'Stable'},
+  {month:'Feb', price:17.0, action:'hold', note:'Pre-harvest'},
+  {month:'Mar', price:17.5, action:'sell', note:'Harvest begins'},
+  {month:'Apr', price:17.8, action:'sell', note:'Strong demand ★'},
+  {month:'May', price:18.1, action:'sell', note:'PEAK ★★'},
+  {month:'Jun', price:17.5, action:'hold', note:'Dropping'},
+  {month:'Jul', price:16.5, action:'hold', note:'Pre-harvest'},
+  {month:'Aug', price:15.2, action:'avoid', note:'2nd-crop harvest'},
+  {month:'Sep', price:14.2, action:'avoid', note:'LOWEST'},
+  {month:'Oct', price:14.5, action:'avoid', note:'Harvest glut'},
+  {month:'Nov', price:15.0, action:'hold', note:'Recovery starts'},
+  {month:'Dec', price:16.0, action:'hold', note:'Pre-cycle'},
+];
+
+const CROPS = {
+  'rice-dry': {
+    name: 'Rice — Dry Season',
+    color: 'rice',
+    cycle: 'November plant → March/April harvest',
+    benefit: 'Avoids typhoons, captures lean-month prices.',
+    stages: [
+      {n:1, name:'Seedbed prep', dates:'Oct 25 – Oct 31', desc:'Soak seeds 24h, drain 24h, sow on dapog or wet bed.', input:'40 kg seeds/ha (NSIC Rc222)'},
+      {n:2, name:'Land preparation', dates:'Nov 1 – Nov 5', desc:'Plow under stubble, flood field. Final harrow Nov 18-20.', input:'Tractor + diesel'},
+      {n:3, name:'Transplanting', dates:'Nov 21 – Nov 30', desc:'Transplant 21-day seedlings at 20×20cm spacing.', input:'15-20 person-days/ha'},
+      {n:4, name:'Basal fertilizer', dates:'At transplant', desc:'Apply complete fertilizer before or at transplanting.', input:'14-14-14 @ 3 bags/ha'},
+      {n:5, name:'1st topdress', dates:'15-20 DAT', desc:'Urea application at active tillering. Monitor for stem borer.', input:'Urea 46-0-0 @ 2 bags/ha'},
+      {n:6, name:'2nd topdress', dates:'40-45 DAT', desc:'Urea + KCl at panicle initiation. Scout for tungro and blast.', input:'Urea 1 bag + 0-0-60 @ 1 bag'},
+      {n:7, name:'Heading & flowering', dates:'55-65 DAT', desc:'Maintain 5cm water depth. Critical reproductive period.', input:'Irrigation'},
+      {n:8, name:'Grain filling', dates:'70-95 DAT', desc:'Bird scaring. Drain field 7-10 days before harvest.', input:'Labor'},
+      {n:9, name:'Harvest', dates:'Mar 1 – Mar 25', desc:'Combine harvest at 80% golden grains.', input:'Combine harvester rental'},
+      {n:10, name:'Dry & store', dates:'+1 to +60 days', desc:'Sun-dry to 14% MC. Sell when farmgate ≥ ₱22/kg.', input:'Dryer + warehouse'},
+    ]
+  },
+  'rice-wet': {
+    name: 'Rice — Wet Season',
+    color: 'rice',
+    cycle: 'May plant → August/early September harvest',
+    benefit: 'Plant earliest possible to harvest BEFORE typhoon season.',
+    stages: [
+      {n:1, name:'Seedbed prep', dates:'Apr 25 – May 1', desc:'Use submergence-tolerant variety for flood resilience.', input:'NSIC Rc194 (Submarino-1) or PSB Rc68'},
+      {n:2, name:'Land preparation', dates:'May 2 – May 21', desc:'Heavy rains begin — soak fields well. Repair dikes.', input:'Tractor + diesel'},
+      {n:3, name:'Transplanting', dates:'May 22 – Jun 5', desc:'Transplant ASAP. Earlier = safer from typhoons.', input:'Labor'},
+      {n:4, name:'Basal fertilizer', dates:'At transplant', desc:'Reduce N rate vs dry season — limited sunlight.', input:'14-14-14 @ 2.5 bags/ha'},
+      {n:5, name:'1st topdress', dates:'15-20 DAT', desc:'Watch for excess N — causes lodging in wet season.', input:'Urea @ 1.5 bags/ha'},
+      {n:6, name:'2nd topdress', dates:'40-45 DAT', desc:'Panicle initiation. Drain briefly to encourage rooting.', input:'Urea + KCl'},
+      {n:7, name:'Reproductive', dates:'Jul 16 – Aug 8', desc:'Habagat peak. Monitor PAGASA daily.', input:'Insurance MUST be active'},
+      {n:8, name:'Grain filling', dates:'Aug 1 – Aug 30', desc:'Drain field early to speed maturity.', input:'Labor'},
+      {n:9, name:'HARVEST FAST', dates:'Aug 30 – Sep 15', desc:'Race the typhoon clock. Mechanical harvest preferred.', input:'Combine + immediate drying'},
+      {n:10, name:'Dry & hold', dates:'Sep onwards', desc:'Avoid selling at harvest — prices crater. Store if possible.', input:'Mechanical dryer essential'},
+    ]
+  },
+  'corn-1': {
+    name: 'Yellow Corn — 1st Crop',
+    color: 'corn',
+    cycle: 'December plant → March/April harvest · RAINFED',
+    benefit: 'Hits the May price peak. Lower pest pressure. Land prep & planting timing depends on rainfall forecast.',
+    stages: [
+      {n:1, name:'Land preparation', dates:'Nov 15 – Nov 30', desc:'Plow + harrow ONLY when 3+ consecutive dry days forecast. Wet land prep wastes diesel.', input:'Tractor + diesel · check Weather tab first'},
+      {n:2, name:'Wait for rain signal', dates:'Late Nov – Early Dec', desc:'Monitor 14-day forecast. Plant on the day BEFORE expected light rain for best germination.', input:'Open-Meteo forecast in Weather tab'},
+      {n:3, name:'Planting', dates:'Dec 1 – Dec 15', desc:'Direct seed at 75cm × 25cm spacing. Time it to forecast rain within 3-5 days.', input:'18-20 kg hybrid seed/ha (Pioneer/Dekalb/NK)'},
+      {n:4, name:'Pre-emergence', dates:'0-3 DAP', desc:'Apply herbicide within 3 days of planting, ideally before rain.', input:'Atrazine + alachlor'},
+      {n:5, name:'Basal fertilizer', dates:'7-14 DAP', desc:'Side-dress complete fertilizer.', input:'14-14-14 @ 5 bags/ha'},
+      {n:6, name:'1st topdress', dates:'25-30 DAP', desc:'Urea + scout for fall armyworm (FAW). Apply before rain to wash in.', input:'Urea @ 4 bags/ha'},
+      {n:7, name:'Off-baring', dates:'30-35 DAP', desc:'Mechanical cultivation and hilling-up.', input:'Cultivator or labor'},
+      {n:8, name:'2nd topdress', dates:'40-45 DAP', desc:'Urea before tasseling. Final N application.', input:'Urea @ 2 bags/ha'},
+      {n:9, name:'Tasseling/silking', dates:'55-65 DAP', desc:'CRITICAL water requirement. Pray for rain — no irrigation backup. FAW peak.', input:'Insecticide if needed'},
+      {n:10, name:'Grain filling', dates:'70-95 DAP', desc:'Monitor ear development. Black layer = mature.', input:'—'},
+      {n:11, name:'HARVEST + SELL', dates:'Mar 16 – Apr 5', desc:'Sell quickly — price peaks April-May then crashes.', input:'Sell when ≥ ₱18/kg'},
+    ]
+  },
+  'corn-2': {
+    name: 'Yellow Corn — 2nd Crop',
+    color: 'corn',
+    cycle: 'May plant → August harvest · RAINFED',
+    benefit: 'Rainfed wet-season crop. Plant timing tied to onset of habagat. Risky but profitable IF harvested by early August.',
+    stages: [
+      {n:1, name:'Land preparation', dates:'Apr 15 – Apr 30', desc:'Plow ONLY when forecast shows 3+ dry days. Tail-end of dry season — soil hard if no rain.', input:'Tractor + diesel · check Weather tab'},
+      {n:2, name:'Wait for habagat onset', dates:'Late Apr – Early May', desc:'Monitor for first reliable rain (≥10mm) signaling wet season. Plant 1-2 days before/after.', input:'14-day forecast'},
+      {n:3, name:'Planting', dates:'May 1 – May 15', desc:'PLANT EARLY. Each week of delay = harvest deeper into typhoon zone.', input:'Hybrid seed 18-20 kg/ha'},
+      {n:4, name:'Pre-emergence', dates:'0-3 DAP', desc:'Heavier weed pressure in wet season. Apply before next rain.', input:'Atrazine + alachlor'},
+      {n:5, name:'Basal fertilizer', dates:'7-14 DAP', desc:'Standard rate. Apply between rain events.', input:'14-14-14 @ 5 bags/ha'},
+      {n:6, name:'1st topdress', dates:'25-30 DAP', desc:'FAW pressure HIGHER in wet season. Scout twice weekly.', input:'Urea @ 4 bags + insecticide'},
+      {n:7, name:'Off-baring', dates:'30-35 DAP', desc:'Improve drainage to prevent root rot during heavy rain.', input:'Cultivator'},
+      {n:8, name:'2nd topdress', dates:'40-45 DAP', desc:'Apply before heavy rains if possible.', input:'Urea @ 2 bags/ha'},
+      {n:9, name:'Tasseling/silking', dates:'Jun 25 – Jul 14', desc:'Habagat in full swing. Reinforce field drainage. Insurance ACTIVE.', input:'PCIC must be filed'},
+      {n:10, name:'Grain filling', dates:'Jul 9 – Aug 14', desc:'Push to mature before September.', input:'—'},
+      {n:11, name:'HARVEST FAST', dates:'Aug 13 – Aug 28', desc:'Sell or store. Prices low at harvest — store for April-May sale.', input:'Mechanical dryer required'},
+    ]
+  }
+};
+
+const VARIETIES = [
+  {name:'NSIC Rc222 (Tubigan 18)', type:'Rice / Inbred', maturity:'114 days', yield:'6.1 t/ha (max 10)', use:'Dry season, irrigated', trait:'High yielder, popular in Isabela'},
+  {name:'NSIC Rc194 (Submarino-1)', type:'Rice / Inbred', maturity:'115 days', yield:'3.5 t/ha', use:'Wet season, flood-prone', trait:'Survives 10-14 days submergence'},
+  {name:'PSB Rc68 (Sacobia)', type:'Rice / Inbred', maturity:'120 days', yield:'4.4 t/ha', use:'Wet season, marginal areas', trait:'Submergence + drought tolerant'},
+  {name:'PSB Rc18 (Ala)', type:'Rice / Inbred', maturity:'123 days', yield:'8.1 t/ha', use:'Wet season', trait:'Survives 5-7 days submergence'},
+  {name:'Mestiso 20 / 73 / 89', type:'Rice / Hybrid', maturity:'110-115 days', yield:'7-9 t/ha', use:'Dry season, well-irrigated', trait:'Premium yield, higher seed cost'},
+  {name:'Pioneer P3393', type:'Corn / Hybrid', maturity:'108 days', yield:'8-10 t/ha', use:'Both seasons', trait:'FAW-tolerant, drought-resilient'},
+  {name:'Dekalb 8719S', type:'Corn / Hybrid', maturity:'110 days', yield:'9-11 t/ha', use:'Both seasons', trait:'High shelling recovery'},
+];
+
+const TYPHOONS = [
+  {year:2025, name:'Nando', month:'Sep', impact:'Region II: 11,083 ha rice affected, ₱424M loss; 9 of 22 worst-hit munis in Isabela'},
+  {year:2025, name:'Crising / Emong / Dante', month:'Jul-Aug', impact:'Triple typhoon; ₱1.81B nationwide rice losses'},
+  {year:2024, name:'Leon (Kong-rey) + Marce', month:'Oct-Nov', impact:'Cagayan total agri damage ₱1.4B from 4 storms'},
+  {year:2024, name:'Kristine (Trami)', month:'Oct', impact:'Nationwide ₱4.46B rice losses across 107,820 ha'},
+  {year:2024, name:'Julian (Krathon)', month:'Sep-Oct', impact:'Region II rice loss ₱427M across 14,836 ha'},
+  {year:2020, name:'Ulysses (Vamco)', month:'Nov', impact:'Worst flooding in 40 yrs; Cagayan ₱370M / Isabela ₱290M rice losses'},
+  {year:2018, name:'Ompong (Mangkhut)', month:'Sep 15', impact:'Strongest typhoon since Yolanda; CAR & Cagayan Valley devastated'},
+  {year:2016, name:'Lawin (Haima)', month:'Oct', impact:'Cat-5 landfall in Cagayan; massive crop loss'},
+];
+
+const TODAY_DATA = [
+  // For each month, a focused "what to do today" message
+  {rice:'Topdress at panicle initiation', corn:'Topdress 1st crop, scout FAW', price:'Hold palay, monitor', risk:'Low — normal ops', tagline:'The dry-season crop reaches its critical reproductive stage. Watch the water depth.'},
+  {rice:'Maintain 5cm water depth', corn:'Approaching tasseling', price:'Sell stored palay (₱20+)', risk:'Low — normal ops', tagline:'Calm before the harvest. Pre-position drying equipment and confirm buyer commitments.'},
+  {rice:'HARVEST dry-season crop', corn:'HARVEST 1st crop begins', price:'Hold palay, sell corn ₱17.5+', risk:'Low — clear weather', tagline:'The big harvest month. Race to dry to 14% MC and lock in early sales.'},
+  {rice:'Finish harvest, plan wet season', corn:'SELL CORN at peak', price:'Corn ₱18 sweet spot', risk:'Low — land prep weather', tagline:'The most profitable month for corn. Sell aggressively, then prepare wet-season fields.'},
+  {rice:'Plant wet-season Submarino-1', corn:'Plant 2nd crop EARLY', price:'CORN PEAK ₱18+, palay firming', risk:'Low — pre-monsoon', tagline:'Plant the wet-season crops as early as humanly possible. Each week of delay raises typhoon risk at harvest.'},
+  {rice:'Basal + 1st topdress', corn:'1st topdress + FAW scouting', price:'Lean season palay ₱21+', risk:'Medium — habagat begins', tagline:'Habagat arrives. Reinforce dikes, check drainage, and monitor PAGASA bulletins daily.'},
+  {rice:'2nd topdress, panicle init.', corn:'Pre-tasseling, watch FAW', price:'PALAY PEAK ₱22+', risk:'Medium — typhoon season', tagline:'Best month to sell palay all year. Move stored grain now while prices are at their peak.'},
+  {rice:'HARVEST wet crop fast', corn:'HARVEST 2nd crop fast', price:'Last palay sales before glut', risk:'Medium-High', tagline:'Harvest aggressively. Anything in the field after September 15 is at risk. Insurance must be active.'},
+  {rice:'Field should be empty', corn:'Sell or store dry corn', price:'AVOID selling — glut + low prices', risk:'HIGH — typhoon peak', tagline:'High alert. Document any standing crops, secure equipment, and ready insurance documentation.'},
+  {rice:'Field empty / clean up', corn:'Field empty / clean up', price:'AVOID selling — worst month', risk:'HIGH — typhoon peak', tagline:'The most dangerous month. Monitor Magat Dam floodgates. Begin planning the next dry-season cycle.'},
+  {rice:'Land prep for dry season', corn:'Land prep for 1st crop', price:'Hold — wait for lean season', risk:'HIGH — late typhoons', tagline:'Begin land preparation. Plant rice November 21-30 for the optimal dry-season window.'},
+  {rice:'Finish transplanting', corn:'Plant 1st crop', price:'Year-end demand pickup', risk:'Medium — tail of season', tagline:'Year-end push. Get all transplanting done and lock in fertilizer prices for the new cycle.'},
+];
+
+const MONTHLY_TASKS = [
+  // Jan
+  [
+    {tag:'rice', text:'Topdress rice at panicle initiation (urea + KCl)'},
+    {tag:'corn', text:'Topdress corn 1st crop with urea'},
+    {tag:'rice', text:'Scout for tungro and rice blast'},
+    {tag:'corn', text:'Scout for fall armyworm (FAW) on corn'},
+    {tag:'money', text:'Pre-harvest market price scan — call regular buyers'},
+  ],
+  // Feb
+  [
+    {tag:'rice', text:'Maintain 5cm water depth on rice'},
+    {tag:'rice', text:'Bird scaring as grain fills'},
+    {tag:'money', text:'Confirm dryer and combine bookings for March'},
+    {tag:'money', text:'Negotiate pre-harvest sale with NFA or millers'},
+  ],
+  // Mar
+  [
+    {tag:'urgent', text:'HARVEST rice dry-season crop (combine at 80% golden grains)'},
+    {tag:'urgent', text:'HARVEST corn 1st crop (black layer formation)'},
+    {tag:'rice', text:'Dry palay to 14% moisture content'},
+    {tag:'corn', text:'Shell and dry corn to 14% MC'},
+    {tag:'money', text:'Begin price negotiations with multiple buyers'},
+  ],
+  // Apr
+  [
+    {tag:'rice', text:'Finish rice harvest and storage'},
+    {tag:'money', text:'SELL CORN at peak prices (₱18+/kg)'},
+    {tag:'urgent', text:'Check 14-day rainfall forecast — corn land prep timing'},
+    {tag:'corn', text:'Land prep for corn 2nd crop ONLY when 3+ dry days forecast'},
+    {tag:'rice', text:'Stock seeds for wet-season rice (Submarino-1)'},
+    {tag:'money', text:'File quarterly BIR and SSS payments'},
+  ],
+  // May
+  [
+    {tag:'urgent', text:'Plant corn 2nd crop on day BEFORE forecast rain (good germination)'},
+    {tag:'urgent', text:'Plant wet-season rice (May 22 - Jun 5) — deep well runs anyway'},
+    {tag:'urgent', text:'Get PCIC crop insurance for both crops'},
+    {tag:'money', text:'SELL stored palay — lean season starts'},
+    {tag:'corn', text:'Apply pre-emergence herbicide on corn within 3 days after planting'},
+  ],
+  // Jun
+  [
+    {tag:'rice', text:'Basal fertilizer + 1st topdress on new crops'},
+    {tag:'urgent', text:'Monitor PAGASA bulletins (typhoon season starts)'},
+    {tag:'rice', text:'Repair dikes and drainage canals'},
+    {tag:'corn', text:'1st topdress + FAW scouting on corn'},
+  ],
+  // Jul
+  [
+    {tag:'rice', text:'2nd topdress at panicle initiation'},
+    {tag:'money', text:'SELL palay at peak prices (₱22+/kg)'},
+    {tag:'urgent', text:'Reinforce flood defenses on low-lying parcels'},
+    {tag:'urgent', text:'Inspect deep well pumps + fuel/electricity reserves before peak season'},
+    {tag:'corn', text:'Pre-tasseling fertilizer on corn'},
+  ],
+  // Aug
+  [
+    {tag:'urgent', text:'Begin corn 2nd-crop harvest (target: end of month)'},
+    {tag:'money', text:'Final palay sales before September glut'},
+    {tag:'urgent', text:'Pre-position drying equipment'},
+    {tag:'urgent', text:'Watch for early typhoons — secure standing crops'},
+    {tag:'rice', text:'Drain rice fields 7-10 days before harvest'},
+  ],
+  // Sep
+  [
+    {tag:'urgent', text:'⚠ HIGH ALERT — RUSH harvest of any mature crop'},
+    {tag:'urgent', text:'Secure all equipment, inputs, and stored grain'},
+    {tag:'money', text:'AVOID selling palay — wait for floor price stability'},
+    {tag:'urgent', text:'Insurance documentation ready and accessible'},
+    {tag:'urgent', text:'Daily PAGASA monitoring + evacuation plan for workers'},
+  ],
+  // Oct
+  [
+    {tag:'urgent', text:'⚠ HIGH ALERT — Field should be EMPTY'},
+    {tag:'urgent', text:'Monitor Magat Dam floodgate releases'},
+    {tag:'urgent', text:'Document any losses for PCIC claim'},
+    {tag:'rice', text:'Begin planning next dry-season hectare allocation'},
+  ],
+  // Nov
+  [
+    {tag:'rice', text:'Land prep for dry-season rice (mid-November)'},
+    {tag:'urgent', text:'Plant rice (target: Nov 21-30) — deep well allows on-schedule'},
+    {tag:'urgent', text:'Check 14-day forecast — corn 1st crop land prep window'},
+    {tag:'money', text:'Negotiate seed and fertilizer bulk orders'},
+    {tag:'urgent', text:'File PCIC claims for any wet-season losses'},
+  ],
+  // Dec
+  [
+    {tag:'rice', text:'Finish rice transplanting'},
+    {tag:'urgent', text:'Plant corn 1st crop on day BEFORE forecast rain'},
+    {tag:'corn', text:'If amihan dry spell, delay corn planting until rain returns'},
+    {tag:'money', text:'Year-end accounting and yield review'},
+    {tag:'rice', text:'Plan next year hectare allocation per parcel'},
+  ],
+];
+
+const MONTH_ACTIVITIES = [
+  // For each month, list activities visible in the calendar
+  // Jan
+  [{crop:'rice', stage:'GROWING', name:'Rice dry-season — vegetative/reproductive', icon:'grow'},
+   {crop:'corn', stage:'GROWING', name:'Corn 1st crop — vegetative', icon:'grow'}],
+  // Feb
+  [{crop:'rice', stage:'GROWING', name:'Rice dry-season — heading & flowering', icon:'grow'},
+   {crop:'corn', stage:'GROWING', name:'Corn 1st crop — tasseling', icon:'grow'}],
+  // Mar
+  [{crop:'rice', stage:'HARVEST', name:'Rice dry-season harvest', icon:'harvest'},
+   {crop:'corn', stage:'HARVEST', name:'Corn 1st crop harvest begins', icon:'harvest'}],
+  // Apr
+  [{crop:'rice', stage:'HARVEST', name:'Finish rice harvest', icon:'harvest'},
+   {crop:'corn', stage:'SELL', name:'SELL CORN at peak prices ★', icon:'sell-good'},
+   {crop:'corn', stage:'PLANT', name:'Plant corn 2nd crop', icon:'plant'}],
+  // May
+  [{crop:'rice', stage:'PLANT', name:'Plant wet-season rice (Submarino-1)', icon:'plant'},
+   {crop:'corn', stage:'PLANT', name:'Plant corn 2nd crop (early!)', icon:'plant'},
+   {crop:'corn', stage:'SELL', name:'CORN PEAK ★★', icon:'sell-good'}],
+  // Jun
+  [{crop:'rice', stage:'GROWING', name:'Wet rice — basal + tillering', icon:'grow'},
+   {crop:'corn', stage:'GROWING', name:'Corn 2nd crop — vegetative', icon:'grow'},
+   {crop:'rice', stage:'SELL', name:'Sell stored palay — lean season', icon:'sell-good'}],
+  // Jul
+  [{crop:'rice', stage:'GROWING', name:'Wet rice — panicle initiation', icon:'grow'},
+   {crop:'corn', stage:'GROWING', name:'Corn 2nd crop — tasseling', icon:'grow'},
+   {crop:'rice', stage:'SELL', name:'PALAY PEAK ₱22+ ★★', icon:'sell-good'}],
+  // Aug
+  [{crop:'rice', stage:'HARVEST', name:'Rice wet-season harvest (rush!)', icon:'harvest'},
+   {crop:'corn', stage:'HARVEST', name:'Corn 2nd crop harvest (rush!)', icon:'harvest'},
+   {crop:'rice', stage:'SELL', name:'Final palay sales before glut', icon:'sell-good'}],
+  // Sep
+  [{crop:'rice', stage:'HARVEST', name:'Finish wet harvest by Sep 15', icon:'harvest'},
+   {crop:'rice', stage:'AVOID', name:'AVOID selling palay — glut', icon:'sell-bad'}],
+  // Oct
+  [{crop:'rice', stage:'AVOID', name:'AVOID selling — worst month', icon:'sell-bad'},
+   {crop:'rice', stage:'HOLD', name:'Hold any stored grain', icon:'sell-hold'}],
+  // Nov
+  [{crop:'rice', stage:'PLANT', name:'Plant rice dry-season (Nov 21-30)', icon:'plant'},
+   {crop:'rice', stage:'AVOID', name:'AVOID selling — glut continues', icon:'sell-bad'}],
+  // Dec
+  [{crop:'rice', stage:'GROWING', name:'Rice dry — early tillering', icon:'grow'},
+   {crop:'corn', stage:'PLANT', name:'Plant corn 1st crop (Dec 1-15)', icon:'plant'}],
+];
+
+// ============================================================
+// STATE
+// ============================================================
+let currentView = 'today';
+let currentCrop = 'rice-dry';
+let selectedTaskMonth = new Date().getMonth();
+let taskState = {};
+
+// Try to load saved task state
+try {
+  const saved = localStorage.getItem('abundance-farm-tasks');
+  if (saved) taskState = JSON.parse(saved);
+} catch(e) { /* localStorage may be blocked */ }
+
+function saveTaskState() {
+  try { localStorage.setItem('abundance-farm-tasks', JSON.stringify(taskState)); } catch(e) {}
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+const now = new Date();
+const m = now.getMonth();
+
+function fmt(d) {
+  return d.toLocaleDateString('en-PH', {weekday:'long', month:'long', day:'numeric'});
+}
+
+function fmtPHP(n) {
+  return '₱' + Math.round(n).toLocaleString('en-PH');
+}
+
+function renderToday() {
+  document.getElementById('todaysDate').textContent = fmt(now);
+  document.getElementById('heroDate').textContent = now.toLocaleDateString('en-PH', {weekday:'long'}).toUpperCase();
+  document.getElementById('heroMonth').textContent = MONTHS[m];
+  document.getElementById('heroYear').textContent = now.getDate();
+  document.getElementById('heroTagline').textContent = TODAY_DATA[m].tagline;
+
+  document.getElementById('todayRice').textContent = TODAY_DATA[m].rice;
+  document.getElementById('todayCorn').textContent = TODAY_DATA[m].corn;
+  document.getElementById('todayPrice').textContent = TODAY_DATA[m].price;
+  document.getElementById('todayRisk').textContent = TODAY_DATA[m].risk;
+
+  // Risk badge
+  const risk = RISK_LEVELS[m];
+  const badge = document.getElementById('riskBadge');
+  const badgeText = document.getElementById('riskBadgeText');
+  badge.className = 'risk-pill risk-' + risk;
+  badgeText.textContent = risk === 'high' ? 'High Typhoon Risk' : risk === 'med' ? 'Medium Risk' : 'Low Risk';
+
+  // Today's tasks (top 4)
+  const tasks = MONTHLY_TASKS[m].slice(0, 4);
+  const html = tasks.map((t, i) => {
+    const key = `${m}-${i}`;
+    const done = taskState[key];
+    return `<div class="task-row ${done ? 'done' : ''}" onclick="toggleTask(${m}, ${i})">
+      <div class="checkbox"></div>
+      <div class="task-text"><span class="task-tag tag-${t.tag}">${t.tag}</span>${t.text}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('todayTasks').innerHTML = html;
+}
+
+function renderCalendar() {
+  const html = MONTHS.map((mo, i) => {
+    const isCurrent = i === m;
+    const acts = MONTH_ACTIVITIES[i] || [];
+    return `<div class="card month-card card-flush">
+      <div class="month-head ${isCurrent ? 'current' : ''}">
+        <div class="month-name">${mo}</div>
+        <div class="month-num">${String(i+1).padStart(2,'0')} / 12</div>
+      </div>
+      <div class="month-body">
+        ${acts.map(a => `
+          <div class="activity-row">
+            <div class="activity-bar activity-${a.crop}"></div>
+            <div class="activity-text">
+              <div class="activity-stage">${a.stage}</div>
+              <div class="activity-name">${a.name}</div>
+            </div>
+            <div class="activity-icon icon-${a.icon}">${iconChar(a.icon)}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+  }).join('');
+  document.getElementById('calendarBody').innerHTML = html;
+}
+
+function iconChar(type) {
+  return {
+    plant: '🌱',
+    grow: '🌾',
+    harvest: '✂',
+    'sell-good': '↑',
+    'sell-bad': '↓',
+    'sell-hold': '◯',
+  }[type] || '•';
+}
+
+function renderCrop() {
+  const c = CROPS[currentCrop];
+  const stagesHtml = c.stages.map((s, i) => `
+    <div class="stage ${c.color === 'corn' ? 'corn' : ''}">
+      <div class="stage-marker">
+        <div class="stage-num">${s.n}</div>
+        <div class="stage-line"></div>
+      </div>
+      <div>
+        <div class="stage-name">${s.name}</div>
+        <div class="stage-dates">${s.dates}</div>
+        <div class="stage-desc">${s.desc}</div>
+        <div class="stage-input">${s.input}</div>
+      </div>
+    </div>
+  `).join('');
+
+  document.getElementById('cropDetail').innerHTML = `
+    <div style="margin-bottom:14px;">
+      <div class="label">${c.cycle}</div>
+      <div class="h2">${c.name}</div>
+      <div class="meta" style="font-style:italic;color:var(--ink-soft);font-family:'Fraunces',serif;">${c.benefit}</div>
+    </div>
+    <div>${stagesHtml}</div>
+  `;
+
+  // Filter varieties for current crop type
+  const isRice = currentCrop.startsWith('rice');
+  const filtered = VARIETIES.filter(v => isRice ? v.type.includes('Rice') : v.type.includes('Corn'));
+  document.getElementById('varietyList').innerHTML = filtered.map(v => `
+    <div style="padding:12px 0;border-bottom:1px solid var(--line);">
+      <div style="font-weight:600;font-size:14px;">${v.name}</div>
+      <div style="font-size:11px;color:var(--ink-mute);text-transform:uppercase;letter-spacing:0.08em;margin:2px 0;">${v.type} · ${v.maturity} · ${v.yield}</div>
+      <div style="font-size:13px;color:var(--ink-soft);margin-top:4px;">${v.trait}</div>
+    </div>
+  `).join('');
+}
+
+function renderPrices() {
+  const palayHtml = PALAY_PRICES.map((p, i) => {
+    const actionLabel = p.action === 'sell' ? 'SELL' : p.action === 'avoid' ? 'AVOID' : 'HOLD';
+    return `<div class="price-month ${i === m ? 'current' : ''}">
+      <div class="pm-name">${p.month}</div>
+      <div class="pm-data">
+        <div class="pm-crop">Avg ₱/kg</div>
+        <div class="pm-price">₱${p.price}</div>
+      </div>
+      <div class="pm-data">
+        <div class="pm-crop">Note</div>
+        <div style="font-size:12px;">${p.note}</div>
+      </div>
+      <div class="pm-action action-${p.action}">${actionLabel}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('palayPrices').innerHTML = palayHtml;
+
+  const cornHtml = CORN_PRICES.map((p, i) => {
+    const actionLabel = p.action === 'sell' ? 'SELL' : p.action === 'avoid' ? 'AVOID' : 'HOLD';
+    return `<div class="price-month ${i === m ? 'current' : ''}">
+      <div class="pm-name">${p.month}</div>
+      <div class="pm-data">
+        <div class="pm-crop">Avg ₱/kg</div>
+        <div class="pm-price">₱${p.price}</div>
+      </div>
+      <div class="pm-data">
+        <div class="pm-crop">Note</div>
+        <div style="font-size:12px;">${p.note}</div>
+      </div>
+      <div class="pm-action action-${p.action}">${actionLabel}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('cornPrices').innerHTML = cornHtml;
+}
+
+function renderRisk() {
+  const html = TYPHOONS.map(t => `
+    <div class="typhoon-event">
+      <div>
+        <div class="te-year">${t.year}</div>
+        <div class="te-month">${t.month}</div>
+      </div>
+      <div>
+        <div class="te-name">${t.name}</div>
+        <div class="te-impact">${t.impact}</div>
+      </div>
+    </div>
+  `).join('');
+  document.getElementById('typhoonHistory').innerHTML = html;
+}
+
+function renderTasks() {
+  // Month selector
+  const selHtml = MONTHS_SHORT.map((mo, i) => {
+    const tasks = MONTHLY_TASKS[i];
+    const doneCount = tasks.filter((_, j) => taskState[`${i}-${j}`]).length;
+    const hasActive = doneCount > 0;
+    return `<button class="${i === selectedTaskMonth ? 'active' : ''} ${hasActive ? 'has-tasks' : ''}" onclick="selectMonth(${i})">${mo}</button>`;
+  }).join('');
+  document.getElementById('monthSelector').innerHTML = selHtml;
+
+  // Task list
+  const tasks = MONTHLY_TASKS[selectedTaskMonth];
+  const html = tasks.map((t, i) => {
+    const key = `${selectedTaskMonth}-${i}`;
+    const done = taskState[key];
+    return `<div class="task-row ${done ? 'done' : ''}" onclick="toggleTask(${selectedTaskMonth}, ${i})">
+      <div class="checkbox"></div>
+      <div class="task-text"><span class="task-tag tag-${t.tag}">${t.tag}</span>${t.text}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('tasksContainer').innerHTML = html;
+
+  // Progress
+  const done = tasks.filter((_, i) => taskState[`${selectedTaskMonth}-${i}`]).length;
+  document.getElementById('tasksProgress').textContent = `${done} of ${tasks.length} done`;
+}
+
+function toggleTask(monthIdx, taskIdx) {
+  const key = `${monthIdx}-${taskIdx}`;
+  taskState[key] = !taskState[key];
+  saveTaskState();
+  if (currentView === 'today') renderToday();
+  if (currentView === 'tasks') renderTasks();
+}
+
+function selectMonth(i) {
+  selectedTaskMonth = i;
+  renderTasks();
+}
+
+function resetMonth() {
+  if (!confirm('Clear all checkboxes for this month?')) return;
+  MONTHLY_TASKS[selectedTaskMonth].forEach((_, i) => {
+    delete taskState[`${selectedTaskMonth}-${i}`];
+  });
+  saveTaskState();
+  renderTasks();
+}
+
+// Calculator
+function updateCalc() {
+  const qty = parseFloat(document.getElementById('calcQty').value) || 0;
+  const price = parseFloat(document.getElementById('calcPrice').value) || 0;
+  const cost = parseFloat(document.getElementById('calcCost').value) || 0;
+  const revenue = qty * price;
+  const totalCost = qty * cost;
+  const profit = revenue - totalCost;
+  const margin = revenue > 0 ? (profit / revenue * 100) : 0;
+  document.getElementById('calcResult').textContent = fmtPHP(profit);
+  if (qty === 0 || price === 0) {
+    document.getElementById('calcMargin').textContent = 'Enter values above';
+  } else {
+    document.getElementById('calcMargin').textContent = `Revenue ${fmtPHP(revenue)} · Margin ${margin.toFixed(0)}%`;
+  }
+}
+['calcQty','calcPrice','calcCost'].forEach(id => {
+  document.getElementById(id).addEventListener('input', updateCalc);
+});
+
+// ============================================================
+// WEATHER (Open-Meteo · free, no API key)
+// ============================================================
+const FARM_LAT = 16.8167; // Santa Maria, Isabela
+const FARM_LON = 121.7167;
+let weatherData = null;
+
+async function fetchWeather(force = false) {
+  // Cache for 1 hour
+  try {
+    const cached = localStorage.getItem('abundance-farm-weather');
+    if (cached && !force) {
+      const parsed = JSON.parse(cached);
+      if (Date.now() - parsed.ts < 3600000) {
+        weatherData = parsed.data;
+        renderWeather();
+        return;
+      }
+    }
+  } catch(e) {}
+
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${FARM_LAT}&longitude=${FARM_LON}&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max&timezone=Asia/Manila&forecast_days=14`;
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    weatherData = data;
+    try { localStorage.setItem('abundance-farm-weather', JSON.stringify({ts: Date.now(), data})); } catch(e) {}
+    renderWeather();
+  } catch(err) {
+    document.getElementById('weatherStrip').innerHTML = '<div style="color:var(--ink-mute);font-size:13px;padding:8px;">Offline — connect to load forecast</div>';
+    document.getElementById('weatherSummary').textContent = 'No connection. Forecast unavailable until online.';
+  }
+}
+
+function wmoIcon(code) {
+  if (code === 0) return '☀';
+  if (code <= 3) return '⛅';
+  if (code <= 48) return '☁';
+  if (code <= 67) return '🌧';
+  if (code <= 77) return '❄';
+  if (code <= 82) return '🌧';
+  if (code <= 99) return '⛈';
+  return '☁';
+}
+
+function wmoText(code) {
+  if (code === 0) return 'Clear';
+  if (code <= 3) return 'Partly cloudy';
+  if (code <= 48) return 'Cloudy / fog';
+  if (code <= 57) return 'Drizzle';
+  if (code <= 67) return 'Rain';
+  if (code <= 77) return 'Snow';
+  if (code <= 82) return 'Showers';
+  if (code <= 99) return 'Thunderstorm';
+  return 'Unknown';
+}
+
+function renderWeather() {
+  if (!weatherData) return;
+  const d = weatherData.daily;
+  const c = weatherData.current;
+
+  // Today strip (next 7 days)
+  const stripHtml = d.time.slice(0, 7).map((iso, i) => {
+    const date = new Date(iso);
+    const day = date.toLocaleDateString('en-PH', {weekday:'short'}).toUpperCase();
+    const num = date.getDate();
+    const rain = d.precipitation_sum[i];
+    const code = d.weather_code[i];
+    const isToday = i === 0;
+    const rainColor = rain >= 30 ? 'var(--danger)' : rain >= 10 ? 'var(--warn)' : rain >= 1 ? 'var(--rice)' : 'var(--ink-mute)';
+    return `<div style="flex-shrink:0;text-align:center;padding:10px 8px;border-radius:10px;min-width:60px;${isToday ? 'background:var(--rice);color:white;' : 'background:var(--bg-elev);'}">
+      <div style="font-size:9px;letter-spacing:0.1em;opacity:.7;font-weight:600;">${day}</div>
+      <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:500;line-height:1;margin:4px 0;">${num}</div>
+      <div style="font-size:18px;line-height:1;">${wmoIcon(code)}</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;margin-top:4px;color:${isToday ? 'white' : rainColor};">${rain.toFixed(0)}mm</div>
+    </div>`;
+  }).join('');
+  const stripEl = document.getElementById('weatherStrip');
+  if (stripEl) stripEl.innerHTML = stripHtml;
+  const updEl = document.getElementById('weatherUpdated');
+  if (updEl) updEl.textContent = 'Updated ' + new Date().toLocaleTimeString('en-PH', {hour:'numeric', minute:'2-digit'});
+
+  // Corn planting recommendation on Today view
+  const adviceEl = document.getElementById('cornAdvice');
+  if (adviceEl) {
+    const advice = analyzePlantingWindow();
+    if (advice) {
+      adviceEl.style.display = 'block';
+      adviceEl.innerHTML = `<div class="hint" style="margin:0;background:${advice.urgent ? 'var(--corn-soft)' : 'var(--gold-soft)'};border-left-color:${advice.urgent ? 'var(--corn)' : 'var(--gold)'};">
+        <strong>${advice.title}</strong> — ${advice.message}
+      </div>`;
+    } else {
+      adviceEl.style.display = 'none';
+    }
+  }
+
+  // Weather tab: hero
+  const heroEl = document.getElementById('weatherNow');
+  if (heroEl) {
+    heroEl.innerHTML = `${Math.round(c.temperature_2m)}°<span style="font-size:24px;color:rgba(245,240,225,0.6);"> · ${wmoText(c.weather_code)}</span>`;
+    document.getElementById('weatherSummary').textContent =
+      `Humidity ${c.relative_humidity_2m}% · Wind ${Math.round(c.wind_speed_10m)} km/h · Rain now ${c.precipitation.toFixed(1)}mm`;
+  }
+
+  // Weather tab: windows
+  const winEl = document.getElementById('weatherWindows');
+  if (winEl) {
+    const windows = findWindows();
+    let html = '';
+    if (windows.dryStreaks.length > 0) {
+      html += `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);">
+        <div style="width:8px;height:8px;border-radius:50%;background:var(--safe);margin-top:6px;flex-shrink:0;"></div>
+        <div>
+          <div style="font-weight:600;font-size:13px;">Land Prep Windows (3+ dry days)</div>
+          <div style="font-size:12px;color:var(--ink-soft);margin-top:2px;">${windows.dryStreaks.map(w => `${w.start}–${w.end} (${w.days}d)`).join(' · ')}</div>
+        </div>
+      </div>`;
+    }
+    if (windows.plantingDays.length > 0) {
+      html += `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);">
+        <div style="width:8px;height:8px;border-radius:50%;background:var(--corn);margin-top:6px;flex-shrink:0;"></div>
+        <div>
+          <div style="font-weight:600;font-size:13px;">Best Corn Planting Days</div>
+          <div style="font-size:12px;color:var(--ink-soft);margin-top:2px;">Dry day with light rain expected within 48h: ${windows.plantingDays.join(', ')}</div>
+        </div>
+      </div>`;
+    }
+    if (windows.heavyRain.length > 0) {
+      html += `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;">
+        <div style="width:8px;height:8px;border-radius:50%;background:var(--danger);margin-top:6px;flex-shrink:0;"></div>
+        <div>
+          <div style="font-weight:600;font-size:13px;">Avoid Field Work (heavy rain ≥30mm)</div>
+          <div style="font-size:12px;color:var(--ink-soft);margin-top:2px;">${windows.heavyRain.join(', ')}</div>
+        </div>
+      </div>`;
+    }
+    if (!html) html = '<div style="color:var(--ink-mute);font-size:13px;padding:8px 0;">No clear windows in next 14 days — monitor daily.</div>';
+    winEl.innerHTML = html;
+  }
+
+  // Weather tab: full 14-day forecast
+  const fcEl = document.getElementById('weatherForecast');
+  if (fcEl) {
+    fcEl.innerHTML = d.time.map((iso, i) => {
+      const date = new Date(iso);
+      const dayName = date.toLocaleDateString('en-PH', {weekday:'short', month:'short', day:'numeric'});
+      const rain = d.precipitation_sum[i];
+      const prob = d.precipitation_probability_max[i];
+      const tmax = Math.round(d.temperature_2m_max[i]);
+      const tmin = Math.round(d.temperature_2m_min[i]);
+      const wind = Math.round(d.wind_speed_10m_max[i]);
+      const code = d.weather_code[i];
+      const rainColor = rain >= 30 ? 'var(--danger)' : rain >= 10 ? 'var(--warn)' : rain >= 1 ? 'var(--rice)' : 'var(--ink-mute)';
+      return `<div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);align-items:center;">
+        <div>
+          <div style="font-weight:600;font-size:13px;">${dayName}</div>
+          <div style="font-size:11px;color:var(--ink-mute);">${wmoText(code)} · wind ${wind} km/h</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:${rainColor};">${rain.toFixed(0)}mm</div>
+          <div style="font-size:10px;color:var(--ink-mute);">${prob}% chance</div>
+        </div>
+        <div style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ink-soft);min-width:50px;">${tmax}°/${tmin}°</div>
+      </div>`;
+    }).join('');
+  }
+}
+
+function findWindows() {
+  const d = weatherData.daily;
+  const dryStreaks = [];
+  const plantingDays = [];
+  const heavyRain = [];
+  let streakStart = null;
+  let streakLen = 0;
+
+  for (let i = 0; i < d.time.length; i++) {
+    const rain = d.precipitation_sum[i];
+    const date = new Date(d.time[i]);
+    const label = date.toLocaleDateString('en-PH', {month:'short', day:'numeric'});
+
+    if (rain < 5) {
+      if (streakStart === null) streakStart = i;
+      streakLen++;
+    } else {
+      if (streakLen >= 3) {
+        dryStreaks.push({
+          start: new Date(d.time[streakStart]).toLocaleDateString('en-PH', {month:'short', day:'numeric'}),
+          end: new Date(d.time[streakStart + streakLen - 1]).toLocaleDateString('en-PH', {month:'short', day:'numeric'}),
+          days: streakLen
+        });
+      }
+      streakStart = null;
+      streakLen = 0;
+    }
+
+    // Best planting day: dry day with light rain within 48 hours
+    if (rain < 5 && i + 1 < d.time.length) {
+      const next1 = d.precipitation_sum[i + 1];
+      const next2 = i + 2 < d.time.length ? d.precipitation_sum[i + 2] : 0;
+      if ((next1 >= 2 && next1 <= 25) || (next2 >= 2 && next2 <= 25)) {
+        plantingDays.push(label);
+      }
+    }
+
+    if (rain >= 30) heavyRain.push(label);
+  }
+  // Final streak
+  if (streakLen >= 3) {
+    dryStreaks.push({
+      start: new Date(d.time[streakStart]).toLocaleDateString('en-PH', {month:'short', day:'numeric'}),
+      end: new Date(d.time[streakStart + streakLen - 1]).toLocaleDateString('en-PH', {month:'short', day:'numeric'}),
+      days: streakLen
+    });
+  }
+  return { dryStreaks: dryStreaks.slice(0, 3), plantingDays: plantingDays.slice(0, 5), heavyRain: heavyRain.slice(0, 5) };
+}
+
+function analyzePlantingWindow() {
+  if (!weatherData) return null;
+  const month = now.getMonth();
+  // Corn planting season: Nov-Dec (1st crop), Apr-May (2nd crop)
+  const isCornPlantingSeason = month === 10 || month === 11 || month === 3 || month === 4;
+  if (!isCornPlantingSeason) return null;
+
+  const w = findWindows();
+  if (w.plantingDays.length > 0) {
+    return {
+      urgent: true,
+      title: 'Corn planting window detected',
+      message: `Best days for corn planting: ${w.plantingDays.slice(0, 3).join(', ')}. Plant before forecast rain for ideal germination.`
+    };
+  }
+  if (w.dryStreaks.length > 0) {
+    return {
+      urgent: false,
+      title: 'Land prep window',
+      message: `Dry stretch: ${w.dryStreaks[0].start}–${w.dryStreaks[0].end} (${w.dryStreaks[0].days} days). Good for plowing.`
+    };
+  }
+  return {
+    urgent: false,
+    title: 'No clear corn window yet',
+    message: 'Heavy rain or no dry stretches in 14-day forecast. Hold corn land prep.'
+  };
+}
+
+// ============================================================
+// PRICE LOGGER
+// ============================================================
+let priceHistory = [];
+try {
+  const saved = localStorage.getItem('abundance-farm-prices');
+  if (saved) priceHistory = JSON.parse(saved);
+} catch(e) {}
+
+// Migrate all entries to single-number averages
+function toAvg(v) {
+  if (v == null) return null;
+  if (typeof v === 'number') return v;
+  if (typeof v === 'object' && v.low != null) return (v.low + v.high) / 2;
+  return null;
+}
+priceHistory = priceHistory.map(p => {
+  if (p.palay !== undefined && p.palayDry === undefined) {
+    return {
+      date: p.date,
+      palayFresh: null,
+      palayDry: toAvg(p.palay),
+      cornFresh: null,
+      cornDry: toAvg(p.corn)
+    };
+  }
+  return {
+    date: p.date,
+    palayFresh: toAvg(p.palayFresh),
+    palayDry: toAvg(p.palayDry),
+    cornFresh: toAvg(p.cornFresh),
+    cornDry: toAvg(p.cornDry)
+  };
+});
+
+// Parse user input → single number (averages ranges) or null
+function parsePrice(str) {
+  if (!str) return null;
+  str = String(str).trim();
+  if (!str) return null;
+  // Range: "22-25", "22 - 25", "22 to 25", "22–25"
+  const m = str.match(/^(\d+\.?\d*)\s*(?:-|–|to)\s*(\d+\.?\d*)$/i);
+  if (m) {
+    const a = parseFloat(m[1]);
+    const b = parseFloat(m[2]);
+    if (isNaN(a) || isNaN(b)) return null;
+    return (a + b) / 2;
+  }
+  const num = parseFloat(str);
+  if (isNaN(num)) return null;
+  return num;
+}
+
+function fmtPrice(n) {
+  if (n == null) return '';
+  // Show 2 decimals if not whole, else integer
+  return n % 1 === 0 ? `₱${n}` : `₱${n.toFixed(2)}`;
+}
+
+function logPrice() {
+  const dateStr = document.getElementById('logDate').value;
+  const palayFresh = parsePrice(document.getElementById('logPalayFresh').value);
+  const palayDry = parsePrice(document.getElementById('logPalayDry').value);
+  const cornFresh = parsePrice(document.getElementById('logCornFresh').value);
+  const cornDry = parsePrice(document.getElementById('logCornDry').value);
+  if (!palayFresh && !palayDry && !cornFresh && !cornDry) {
+    alert('Enter at least one price (single value or range like 22-25)');
+    return;
+  }
+  if (!dateStr) {
+    alert('Select a date');
+    return;
+  }
+  const date = new Date(dateStr + 'T12:00:00');
+  priceHistory.push({
+    date: date.toISOString(),
+    palayFresh, palayDry, cornFresh, cornDry
+  });
+  if (priceHistory.length > 500) priceHistory = priceHistory.slice(-500);
+  try { localStorage.setItem('abundance-farm-prices', JSON.stringify(priceHistory)); } catch(e) {}
+  ['logPalayFresh','logPalayDry','logCornFresh','logCornDry'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('logDate').value = new Date().toISOString().split('T')[0];
+  renderPriceLog();
+}
+
+function deletePrice(idx) {
+  if (!confirm('Delete this price entry?')) return;
+  const sorted = [...priceHistory].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const target = sorted[idx];
+  const targetIdx = priceHistory.findIndex(p => p.date === target.date && JSON.stringify(p) === JSON.stringify(target));
+  if (targetIdx >= 0) priceHistory.splice(targetIdx, 1);
+  try { localStorage.setItem('abundance-farm-prices', JSON.stringify(priceHistory)); } catch(e) {}
+  renderPriceLog();
+}
+
+function avg(arr) { return arr.length ? arr.reduce((a,b)=>a+b,0) / arr.length : 0; }
+
+function renderPriceLog() {
+  const dateInput = document.getElementById('logDate');
+  if (dateInput && !dateInput.value) {
+    dateInput.value = new Date().toISOString().split('T')[0];
+  }
+
+  const el = document.getElementById('priceLog');
+  if (!el) return;
+  if (priceHistory.length === 0) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--ink-mute);text-align:center;padding:12px;">No prices logged yet.</div>';
+    return;
+  }
+
+  const sorted = [...priceHistory].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const pf = sorted.filter(p => p.palayFresh != null).map(p => p.palayFresh);
+  const pd = sorted.filter(p => p.palayDry != null).map(p => p.palayDry);
+  const cf = sorted.filter(p => p.cornFresh != null).map(p => p.cornFresh);
+  const cd = sorted.filter(p => p.cornDry != null).map(p => p.cornDry);
+
+  const palayHasData = pf.length || pd.length;
+  const cornHasData = cf.length || cd.length;
+
+  let html = `<div class="label" style="margin-bottom:8px;">My Price History (${sorted.length} entries)</div>`;
+
+  if (palayHasData || cornHasData) {
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">`;
+    if (palayHasData) {
+      html += `<div style="background:var(--rice-soft);padding:10px;border-radius:8px;">
+        <div style="font-size:10px;color:var(--rice);font-weight:600;letter-spacing:.1em;text-align:center;margin-bottom:6px;">PALAY</div>
+        ${pf.length ? `<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--rice);margin-bottom:2px;"><span>Fresh avg</span><span style="font-family:'JetBrains Mono',monospace;font-weight:600;">₱${avg(pf).toFixed(2)}</span></div>` : ''}
+        ${pd.length ? `<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--rice);"><span>Dry avg</span><span style="font-family:'JetBrains Mono',monospace;font-weight:600;">₱${avg(pd).toFixed(2)}</span></div>` : ''}
+      </div>`;
+    }
+    if (cornHasData) {
+      html += `<div style="background:var(--corn-soft);padding:10px;border-radius:8px;">
+        <div style="font-size:10px;color:var(--corn);font-weight:600;letter-spacing:.1em;text-align:center;margin-bottom:6px;">CORN</div>
+        ${cf.length ? `<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--corn);margin-bottom:2px;"><span>Fresh avg</span><span style="font-family:'JetBrains Mono',monospace;font-weight:600;">₱${avg(cf).toFixed(2)}</span></div>` : ''}
+        ${cd.length ? `<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--corn);"><span>Dry avg</span><span style="font-family:'JetBrains Mono',monospace;font-weight:600;">₱${avg(cd).toFixed(2)}</span></div>` : ''}
+      </div>`;
+    }
+    html += `</div>`;
+  }
+
+  const showLimit = 20;
+  const visible = sorted.slice(0, showLimit);
+  const currentYear = new Date().getFullYear();
+
+  html += visible.map((p, i) => {
+    const d = new Date(p.date);
+    const yr = d.getFullYear();
+    const dateStr = yr === currentYear
+      ? d.toLocaleDateString('en-PH', {month:'short', day:'numeric'})
+      : d.toLocaleDateString('en-PH', {month:'short', day:'numeric', year:'numeric'});
+    const parts = [];
+    if (p.palayFresh != null) parts.push(`<span style="color:var(--rice);"><span style="opacity:.6;font-size:10px;">PF</span> <span style="font-weight:600;">${fmtPrice(p.palayFresh)}</span></span>`);
+    if (p.palayDry != null) parts.push(`<span style="color:var(--rice);"><span style="opacity:.6;font-size:10px;">PD</span> <span style="font-weight:600;">${fmtPrice(p.palayDry)}</span></span>`);
+    if (p.cornFresh != null) parts.push(`<span style="color:var(--corn);"><span style="opacity:.6;font-size:10px;">CF</span> <span style="font-weight:600;">${fmtPrice(p.cornFresh)}</span></span>`);
+    if (p.cornDry != null) parts.push(`<span style="color:var(--corn);"><span style="opacity:.6;font-size:10px;">CD</span> <span style="font-weight:600;">${fmtPrice(p.cornDry)}</span></span>`);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;gap:8px;">
+      <span style="color:var(--ink-mute);min-width:75px;">${dateStr}</span>
+      <span style="font-family:'JetBrains Mono',monospace;flex:1;text-align:right;display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;">
+        ${parts.join(' ')}
+      </span>
+      <button onclick="deletePrice(${i})" style="background:transparent;border:none;color:var(--ink-mute);font-size:18px;width:28px;height:28px;border-radius:50%;cursor:pointer;padding:0;line-height:1;flex-shrink:0;" title="Delete">×</button>
+    </div>`;
+  }).join('');
+
+  if (sorted.length > showLimit) {
+    html += `<div style="text-align:center;padding:10px 0 4px;font-size:11px;color:var(--ink-mute);">+ ${sorted.length - showLimit} more entries</div>`;
+  }
+
+  html += `<div style="display:flex;justify-content:center;gap:14px;margin-top:12px;font-size:10px;color:var(--ink-mute);letter-spacing:0.05em;">
+    <span><strong>PF</strong> Palay Fresh</span>
+    <span><strong>PD</strong> Palay Dry</span>
+    <span><strong>CF</strong> Corn Fresh</span>
+    <span><strong>CD</strong> Corn Dry</span>
+  </div>`;
+
+  el.innerHTML = html;
+}
+
+
+document.querySelectorAll('nav.bottom button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const view = btn.dataset.view;
+    document.querySelectorAll('nav.bottom button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById('view-' + view).classList.add('active');
+    currentView = view;
+    if (view === 'calendar') renderCalendar();
+    if (view === 'crops') renderCrop();
+    if (view === 'prices') { renderPrices(); renderPriceLog(); }
+    if (view === 'risk') renderWeather();
+    if (view === 'tasks') renderTasks();
+    window.scrollTo(0, 0);
+  });
+});
+
+// Crop toggle
+document.querySelectorAll('.toggle button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.toggle button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentCrop = btn.dataset.crop;
+    renderCrop();
+  });
+});
+
+// Welcome
+function dismissWelcome() {
+  document.getElementById('welcome').style.display = 'none';
+  try { localStorage.setItem('abundance-farm-welcomed', '1'); } catch(e) {}
+}
+
+// Show welcome only on first iOS Safari visit (not standalone)
+const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+let welcomed = false;
+try { welcomed = localStorage.getItem('abundance-farm-welcomed'); } catch(e) {}
+if (isIOS && !isStandalone && !welcomed) {
+  setTimeout(() => { document.getElementById('welcome').style.display = 'flex'; }, 800);
+}
+
+// Initial render
+renderToday();
+renderRisk();      // Renders typhoon history once
+fetchWeather();    // Live weather
+renderPriceLog();  // Show any saved prices
+</script>
+</body>
+</html>
