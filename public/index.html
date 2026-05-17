@@ -10647,7 +10647,7 @@ function TasksView({ monthIdx, taskState, toggleTask, resetMonth }) {
   return (
     <div className="ab-fade">
       <div style={{ padding:'18px 4px 10px', display:'flex', alignItems:'baseline', justifyContent:'space-between' }}>
-        <div style={{ fontFamily:T.fontDisplay, fontWeight:500, fontSize:24, letterSpacing:'-0.02em' }}>Monthly Tasks</div>
+        <div style={{ fontFamily:T.fontDisplay, fontWeight:500, fontSize:24, letterSpacing:'-0.02em' }}>{MONTHS_SHORT[selectedMonth]} Playbook</div>
         <div style={{ fontSize:11, color:T.inkMute, letterSpacing:'0.1em', textTransform:'uppercase' }}>{doneCount} of {tasks.length} done</div>
       </div>
 
