@@ -1,52 +1,49 @@
 # Abundance Farm
 
-Single-file web app for **MAK-CT rice and corn operations** in San Isidro West, Santa Maria, Isabela.
+Rice and corn operations app for **MAK-CT** in San Isidro West, Santa Maria, Isabela.
 
-Twelve tabs — Today, Calendar, Dashboard, Areas, Crops, Prices, Weather, Tasks, Accounting, Equipment, Inventory, Breeds — with live Open-Meteo weather for the farm coordinates (16.8167, 121.7167), seasonal palay/corn price guidance, monthly task checklists, and full operations tracking (areas, tasks, inventory, harvests, labor, equipment, fuel, accounting). All data persists to the browser's localStorage.
+Live at **[abundance.mak-ct.com](https://abundance.mak-ct.com)** — installable as a phone app (iOS Safari → *Add to Home Screen*, Android Chrome → *Install app*).
 
-No build step. `index.html` loads React, Recharts, and Babel from CDN and runs the app client-side.
+## What it does
 
-## Deploy to GitHub Pages
+Twelve tabs covering daily farm life: Today, Calendar, Dashboard, Areas, Crops, Prices, Weather, Tasks, Accounting, Equipment, Inventory, and Breeds. Highlights:
 
-1. Create an empty public repo on GitHub (e.g. `abundance-farm`).
-2. From this folder, run:
+- **Live weather** for the farm coordinates (16.8167, 121.7167) via Open-Meteo
+- **Daily palay & corn price intel** scraped from PSA OpenSTAT + Google Sheet override, with seasonal sell/hold/avoid guidance and NFA buying-price reference
+- **Per-area operations tracking** — areas, crops, tasks, inventory, harvests, labor, equipment, fuel logs, accounting
+- **Typhoon risk awareness** tuned to Cagayan Valley history
+- **Multi-user auth** via Cloudflare-managed `ADMIN_SECRET`; Owner can invite Farm Managers
+- **Offline-friendly** PWA; data persists to localStorage and syncs to the Worker
 
-   ```bash
-   git remote add origin https://github.com/<your-username>/<repo>.git
-   git branch -M main
-   git push -u origin main
-   ```
-3. In the repo on GitHub: **Settings → Pages**. Set *Source* to "Deploy from a branch", *Branch* to `main` / `(root)`, then **Save**.
-4. Wait ~30 seconds. Your URL is `https://<your-username>.github.io/<repo>/`.
+## Stack
 
-Every subsequent `git push` re-deploys automatically.
+A single Cloudflare Worker named **`abundance-prices`** serves both the app and the API from one origin:
 
-## Install as a phone app
+- **Static assets** — `public/index.html` (React + Recharts + Babel from CDN, no build step)
+- **API** — `src/index.js` (auth, users, prices, weather proxy, NDVI imagery, photo diagnosis)
+- **Storage** — KV namespace `PRICES` for users, sessions, prices, areas, and operations data
+- **Scheduled** — Daily 22:00 UTC cron pulls PSA OpenSTAT + Google Sheet for fresh prices
+- **Custom domain** — `abundance.mak-ct.com` routed via Cloudflare dashboard
 
-Open the deployed URL on your phone:
+## Quick deploy
 
-- **iPhone (Safari)** — Share → *Add to Home Screen*
-- **Android (Chrome)** — three-dot menu → *Install app*
-
-The PWA meta tags are already set: full-screen launch, dark green theme, golden "A" icon.
-
-## Local preview
-
-Just double-click `index.html` — works from `file://` too, as long as your browser can reach the CDNs.
-
-## Update the app
-
-Edit `index.html` locally (the app code is in the final `<script type="text/plain" id="app-source">` block), then:
+From this folder:
 
 ```bash
-git add index.html
-git commit -m "Update app"
-git push
+npm run deploy
 ```
 
-## Farm context
+That single command installs deps, runs smoke tests, generates/uploads `ADMIN_SECRET` on first run, deploys the Worker, and pings `/api/health` to confirm. For the full step-by-step (including first-time setup, custom domain attachment, and troubleshooting), see [DEPLOY.md](./DEPLOY.md).
 
-- Location: Santa Maria, Isabela (16.8167, 121.7167) — weather auto-fetched
-- Crops: Rice (dry + wet season) and yellow corn (1st + 2nd crop, rainfed)
-- Price intel: Seasonal palay and corn price curves with sell/hold/avoid guidance
-- Typhoon risk tracking tied to Cagayan Valley history (Ompong, Ulysses, Kristine, etc.)
+One-click `.command` shortcuts in this folder for routine ops: `redeploy.command`, `redeploy-and-open.command`, `setup-secrets.command`, `reset-and-bootstrap.command`.
+
+## Local development
+
+```bash
+npx wrangler dev    # http://localhost:8787
+npm test            # offline smoke test of auth + role logic
+```
+
+## Repository
+
+Private repo: `github.com/Phelicskit/abundance-farm`. Local clone is the deployable working tree — edits go via `git commit` + `git push`, then `npm run deploy`.
