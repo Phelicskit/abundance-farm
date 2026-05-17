@@ -1,0 +1,79 @@
+name: Deploy to Cloudflare Workers
+
+# Auto-deploy abundance-prices Worker on every push to main.
+# Mirrors the local bin/deploy.sh flow:
+#   1. Checkout code
+#   2. Install dependencies (npm ci)
+#   3. Run offline smoke tests (test/smoke.mjs) — 28 checks for auth + role logic
+#   4. wrangler deploy (publishes Worker + uploads /public assets)
+#
+# Required GitHub Secret:
+#   CLOUDFLARE_API_TOKEN  — token with permissions:
+#     - Account → Workers Scripts → Edit
+#     - Account → Workers KV Storage → Edit
+#     - Account → Account Settings → Read
+#     - User    → User Details → Read
+#   Create at: https://dash.cloudflare.com/profile/api-tokens
+#   Add to repo at: Settings → Secrets and variables → Actions → New repository secret
+#
+# Skipped automatically:
+#   - Pushes that only change documentation (README.md, *.md outside src/, DEPLOY.md)
+#   - Pushes to branches other than main
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'README.md'
+      - 'DEPLOY.md'
+      - '.gitignore'
+      - 'redeploy*.command'
+      - '*.command'
+  workflow_dispatch:        # allow manual runs from the Actions tab
+
+# Cancel in-progress deploys if a newer commit lands while one is running.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy abundance-prices Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run offline smoke tests
+        run: node test/smoke.mjs
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # Wrangler reads wrangler.toml from repo root; no extra args needed.
+          # ADMIN_SECRET is already set on the Worker via `wrangler secret put`
+          # and is NOT managed by this workflow (intentional — it lives only
+          # on Cloudflare's side, never in CI).
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "### Deploy succeeded :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Worker: \`abundance-prices\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Live:   https://abundance.mak-ct.com" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
