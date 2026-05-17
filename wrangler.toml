@@ -1,0 +1,63 @@
+name = "abundance-prices"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# Static assets — Workers serves files from ./public for any non-/api request.
+# This is what makes the SPA + API live on the same origin.
+[assets]
+directory = "./public"
+not_found_handling = "single-page-application"
+binding = "ASSETS"
+
+# Daily price scrape: 22:00 UTC = 06:00 Asia/Manila
+[triggers]
+crons = ["0 22 * * *"]
+
+# KV namespace — keep the same id you already created so existing data carries over.
+[[kv_namespaces]]
+binding = "PRICES"
+id = "91904ff4515a4c799b782b83e9111a45"
+
+[vars]
+# SOURCE_MODE controls scrapeAndStore behavior:
+#   "multi"    — fetch PSA OpenSTAT + sheet, merge (sheet wins on conflicts)
+#   "sheet"    — sheet only (legacy)
+#   "philrice" — old fragile HTML scraper (legacy)
+#   "custom"   — custom CSV URL (legacy)
+SOURCE_MODE = "multi"
+
+GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSS9NGgc2x3Ny_BXQwoTgfXOeXThxIgzHoG0dNlPqzluaUhuDMStSqLTe_ysdNUB-RV-DNe3v7W4FsY/pub?output=csv"
+PHILRICE_URL = "https://www.philrice.gov.ph/price-watch/"
+CUSTOM_SOURCE_URL = ""
+
+# PSA OpenSTAT (PX-Web JSON API). Adjust if PSA moves the tables.
+# These can be overridden in the Cloudflare dashboard without redeploying.
+PSA_OPENSTAT_API_BASE = "https://openstat.psa.gov.ph/PXWeb/api/v1/en/DB"
+# Cereals: Farmgate Prices by Geolocation, Commodity, Year and Period.
+# This is the CURRENT (New Series) table — covers 2010 through current month.
+# Updated daily. The old DB__2M__FG (Old Series) only ran 1990-2020.
+# Confirmed via PX-Web browse on 2026-05-15.
+PSA_PALAY_TABLE = "2M/NFG/0032M4AFN01.px"
+PSA_CORN_TABLE  = "2M/NFG/0032M4AFN01.px"
+# Comma-separated region codes to extract. "PH" or "00" = National, "02" = Region II (Cagayan Valley).
+# The scraper tries each value and includes any that match.
+PSA_REGION_CODES = "PH,00,02,R02"
+# How many most-recent months to pull from PSA on each scrape.
+PSA_MONTHS_BACK = "12"
+
+# ---------- NFA palay buying price reference (Phase 4) ----------
+# Government floor prices. Update via Cloudflare dashboard or here; redeploy
+# to apply. Source for each value is in NFA_SOURCE_URL — verified 2026-05-15.
+# These are what NFA pays farmers; useful as the MINIMUM price you should
+# accept when selling palay.
+NFA_PALAY_FRESH    = "17.00"
+NFA_PALAY_DRY      = "21.00"
+NFA_PALAY_PREMIUM  = "30.00"        # ceiling in select regions for clean/dry
+NFA_CAGAYAN_DRY    = "17.70"        # NFA Cagayan branch (RDC2)
+NFA_LAST_VERIFIED  = "2026-05-15"
+NFA_NOTE           = "Base buying prices nationwide. Regional incentive areas (e.g. Bulacan, Nueva Ecija, Ilocos) buy clean dry palay up to ₱30/kg."
+NFA_SOURCE_URL     = "https://www.da.gov.ph/government-to-use-nfa-as-temporary-benchmark-for-palay-floor-price/"
+
+# Custom domain route is added through the Cloudflare dashboard after the first deploy:
+#   Workers and Pages -> abundance-farm -> Settings -> Triggers -> Add Custom Domain
+#   Domain: abundance.mak-ct.com

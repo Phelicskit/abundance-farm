@@ -1,0 +1,35 @@
+# Node / npm
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Wrangler / Cloudflare local cache
+.wrangler/
+wrangler.toml.bak
+
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Backup files
+*.bak
+public/index.html.bak
+
+# Local secrets — Cloudflare secrets live server-side, but
+# defend against accidentally committing local .env files
+.env
+.env.local
+.env.*.local
+.dev.vars
+
+# Build artifacts (none currently, but cover the bases)
+dist/
+build/
+
+# Internal housekeeping
+_archive/
+_legacy/
