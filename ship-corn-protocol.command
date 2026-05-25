@@ -33,16 +33,24 @@ if git diff --cached --quiet; then
   echo "Nothing to commit — repo is already clean."
 else
   echo ">> Committing..."
-  git commit -m "Add corn protocol, alt-fertilizer protocols, manual fertilizer prices, and per-task protocol overrides
+  git commit -m "Corn-aware fixes: dashboard cards, NPK targets, advisory filters
 
-- Corn standard hybrid protocol (basal 14-14-14 + urea side-dress x2 + 0-0-60)
-- Rice + Corn alt-fertilizer protocols (auto-pick cheapest N source by price)
-- Crop selector per area (rice/corn) with sensible protocol + maturity defaults
-- Manual fertilizer prices panel under Inventory tab (with last-purchase copy)
-- Inline price entry + cost ranking on the substitute calculator
-- Manual override on every protocol task: edit date, edit fertilizer item/qty,
-  hide tasks, restore hidden, + add custom protocol steps
-- Plus pre-existing fixes: /api/me no longer leaks userCount; faa-units smoke test
+After the corn protocol shipped, simulated end-to-end use of a corn area and
+found several places that still assumed rice schedule shape or detected crop
+via breed-substring matching. Fixed:
+
+- Dashboard per-area card: crop-aware key dates (Planted/Tassel/Silk for corn
+  vs Sow/Transplant/Panicle for rice) and crop-aware input totals (corn pulls
+  from basal_14_14_14_kg + sd1_urea_kg + sd2_urea_kg + sd2_mop_kg; rice pulls
+  from the existing N1K1/N2K2/N3K3 fields). All additive expressions now guard
+  undefined → 0 so corn cards no longer NaN.
+
+- NPK Tracker: targets now switch on crop. Rice keeps 105N/45P/45K (irrigated
+  lowland). Hybrid yellow corn now uses 175N/75P/75K (PhilRice/DA-BPI).
+
+- FieldDiagnose, harvest forecast crop detection, seasonal-hold advisory, and
+  skip-AWD weather alert: all now prefer area.crop with breed-substring as
+  the legacy fallback.
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 fi

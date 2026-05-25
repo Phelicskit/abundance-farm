@@ -1146,15 +1146,21 @@ function Dashboard(props) {
                   <ProgressBar pct={a.pct} h={8} />
                 </div>
 
-                {/* Key Dates Row */}
+                {/* Key Dates Row — crop-aware. Corn schedules don't have panicle init;
+                    they have tasseling instead. Rice has sowing→transplant→panicle→harvest. */}
                 {sched && (
                   <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:10 }}>
-                    {[
+                    {(sched.crop === 'corn' ? [
+                      ["Planted", sched.plantingDate || sched.sowingDate, "🌽"],
+                      ["Tassel", sched.tasselDate, "🌾"],
+                      ["Silk", sched.silkDate, "🌽"],
+                      ["Harvest", sched.harvestDate, "🌾"]
+                    ] : [
                       ["Sow", sched.sowingDate, "🌱"],
                       ["Transplant", sched.tasks.find(t => t.activity === "Transplanting")?.planStart, "🌾"],
                       ["Panicle", sched.panicleDate, "🌿"],
                       ["Harvest", sched.harvestDate, "🌾"]
-                    ].map(([label, date, icon]) => (
+                    ]).map(([label, date, icon]) => (
                       <div key={label} style={{ background:"#f5f5f0", borderRadius:8, padding:"4px 10px", fontSize:11, display:"flex", alignItems:"center", gap:4 }}>
                         <span style={{ fontSize:12 }}>{icon}</span>
                         <span style={{ color:"#888" }}>{label}:</span>
@@ -1164,15 +1170,22 @@ function Dashboard(props) {
                   </div>
                 )}
 
-                {/* Input Requirements: Applied / Total */}
+                {/* Input Requirements: Applied / Total — crop-aware.
+                    Rice schedule has urea_N1K1/N2K2/N3K3 + mop_K + faa.
+                    Corn schedule has sd1_urea_kg + sd2_urea_kg + sd2_mop_kg + basal_14_14_14_kg.
+                    Defensive: every additive expression guards undefined → 0. */}
                 {sched && (
                   <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginBottom:10 }}>
-                    {[
-                      { label:"14-14-14", total: sched.quantities.basalSeedbedKg + parseFloat(sched.quantities.basalFieldBags || 0)*50, applied: a.applied["14-14-14"], fmt: v => `${Math.round(v)} kg`, bg:"#e3f2fd", c:"#1565c0" },
-                      { label:"46-0-0", total: (sched.quantities.urea_N1K1 + sched.quantities.urea_N2K2 + sched.quantities.urea_N3K3), applied: a.applied["46-0-0"], fmt: v => `${Math.round(v/50)} bags`, bg:"#e8f5e9", c:"#2e7d32" },
-                      { label:"0-0-60", total: (sched.quantities.mop_N1K1 + sched.quantities.mop_N2K2 + sched.quantities.mop_N3K3 + sched.quantities.mop_K), applied: a.applied["0-0-60"], fmt: v => `${Math.round(v/50)} bags`, bg:"#fff3e0", c:"#e65100" },
-                      { label:"FAA", total: sched.quantities.totalFAA_L, applied: a.applied["FAA_mL"], fmt: v => `${Math.round(v/1000)}L`, bg:"#f3e5f5", c:"#7b1fa2" },
-                    ].map(inp => {
+                    {(sched.crop === 'corn' ? [
+                      { label:"14-14-14", total: (sched.quantities.basal_14_14_14_kg || 0), applied: a.applied["14-14-14"], fmt: v => `${Math.round(v)} kg`, bg:"#e3f2fd", c:"#1565c0" },
+                      { label:"46-0-0", total: ((sched.quantities.sd1_urea_kg || 0) + (sched.quantities.sd2_urea_kg || 0)), applied: a.applied["46-0-0"], fmt: v => `${Math.round(v/50)} bags`, bg:"#e8f5e9", c:"#2e7d32" },
+                      { label:"0-0-60", total: (sched.quantities.sd2_mop_kg || 0), applied: a.applied["0-0-60"], fmt: v => `${Math.round(v/50)} bags`, bg:"#fff3e0", c:"#e65100" },
+                    ] : [
+                      { label:"14-14-14", total: (sched.quantities.basalSeedbedKg || 0) + parseFloat(sched.quantities.basalFieldBags || 0)*50, applied: a.applied["14-14-14"], fmt: v => `${Math.round(v)} kg`, bg:"#e3f2fd", c:"#1565c0" },
+                      { label:"46-0-0", total: ((sched.quantities.urea_N1K1 || 0) + (sched.quantities.urea_N2K2 || 0) + (sched.quantities.urea_N3K3 || 0)), applied: a.applied["46-0-0"], fmt: v => `${Math.round(v/50)} bags`, bg:"#e8f5e9", c:"#2e7d32" },
+                      { label:"0-0-60", total: ((sched.quantities.mop_N1K1 || 0) + (sched.quantities.mop_N2K2 || 0) + (sched.quantities.mop_N3K3 || 0) + (sched.quantities.mop_K || 0)), applied: a.applied["0-0-60"], fmt: v => `${Math.round(v/50)} bags`, bg:"#fff3e0", c:"#e65100" },
+                      { label:"FAA", total: (sched.quantities.totalFAA_L || 0), applied: a.applied["FAA_mL"], fmt: v => `${Math.round(v/1000)}L`, bg:"#f3e5f5", c:"#7b1fa2" },
+                    ]).map(inp => {
                       const pct = inp.total > 0 ? Math.round(inp.applied / inp.total * 100) : 0;
                       const isComplete = pct >= 100;
                       return (
@@ -2822,9 +2835,11 @@ function FertilizerCalculator({ mobile, fertilizerPrices, setFertilizerPrices })
 //   0-0-60  → K 60% (muriate of potash)
 //   21-0-0  → N 21% (ammonium sulfate)
 // Uses actualInput_* values when entered; otherwise falls back to planned.
-// Typical recommended rates for irrigated lowland rice (per hectare):
-//   N: 90–120 kg/ha  ·  P2O5: 30–60 kg/ha  ·  K2O: 30–60 kg/ha
-function NpkTracker({ areaTasks, ha, mobile, fertilizerPrices, setFertilizerPrices }) {
+// Typical recommended rates per crop (per hectare):
+//   Irrigated lowland rice: N 90–120, P2O5 30–60, K2O 30–60
+//   Hybrid yellow corn:     N 150–200, P2O5 60–90, K2O 60–90
+// Source: PhilRice / DA-BPI hybrid corn extension recommendations.
+function NpkTracker({ areaTasks, ha, mobile, fertilizerPrices, setFertilizerPrices, crop }) {
   const stats = useMemo(() => {
     const FERT = {
       "14-14-14": { N: 0.14, P: 0.14, K: 0.14 },
@@ -2854,8 +2869,12 @@ function NpkTracker({ areaTasks, ha, mobile, fertilizerPrices, setFertilizerPric
     return { N, P, K, breakdown };
   }, [areaTasks]);
 
-  // Recommended midpoints
-  const REC = { N: 105, P: 45, K: 45 };
+  // Recommended midpoints — crop-aware. Corn needs ~75% more N than rice
+  // because each hectare grows ~6-7 t corn vs ~5 t rice, plus corn has higher
+  // N uptake per kg of grain.
+  const REC = (crop === 'corn')
+    ? { N: 175, P: 75, K: 75 }
+    : { N: 105, P: 45, K: 45 };
   const perHa = (kg) => ha > 0 ? kg / ha : 0;
   const pct = (kg, rec) => ha > 0 && rec > 0 ? Math.min(100, Math.round((kg / ha) / rec * 100)) : 0;
   const cell = (label, total, rec, color, bg) => {
@@ -3457,7 +3476,7 @@ function AreasManager({ areas, setAreas, schedules, breeds, taskMeta, setTaskMet
             />
           )}
           {subTab === "info" && a.name && (
-            <NpkTracker areaTasks={areaTasks} ha={a.ha || 0} mobile={mobile} fertilizerPrices={fertilizerPrices} setFertilizerPrices={setFertilizerPrices} />
+            <NpkTracker areaTasks={areaTasks} ha={a.ha || 0} mobile={mobile} fertilizerPrices={fertilizerPrices} setFertilizerPrices={setFertilizerPrices} crop={a.crop || 'rice'} />
           )}
 
           {/* Sub-tab: Protocol */}
@@ -3492,7 +3511,7 @@ function AreasManager({ areas, setAreas, schedules, breeds, taskMeta, setTaskMet
 
           {/* Sub-tab: Field photo diagnosis */}
           {subTab === "diagnose" && a.name && (
-            <FieldDiagnose areaName={a.name} areaCrop={(a.breed || '').toLowerCase().includes('corn') ? 'corn' : 'rice'} diagnoses={diagnoses} setDiagnoses={setDiagnoses} mobile={mobile} />
+            <FieldDiagnose areaName={a.name} areaCrop={a.crop || ((a.breed || '').toLowerCase().includes('corn') ? 'corn' : 'rice')} diagnoses={diagnoses} setDiagnoses={setDiagnoses} mobile={mobile} />
           )}
 
           {/* Sub-tab: Parcel map */}
@@ -4313,7 +4332,7 @@ function computeCashflowForecast({
       yMid = yMatch.length > 1 ? (parseFloat(yMatch[0]) + parseFloat(yMatch[1])) / 2 : parseFloat(yMatch[0]);
     }
     const expectedKg = yMid * ha * 1000 * yieldFactor;
-    const crop = (area.breed || '').toLowerCase().includes('corn') ? 'corn' : 'rice';
+    const crop = area.crop || ((area.breed || '').toLowerCase().includes('corn') ? 'corn' : 'rice');
     const pricePerKg = predictPriceAt(sched.harvestDate, crop, priceLog, nfaFloor, overrides);
     const gross = expectedKg * pricePerKg;
     const supervisorPct = (area.commissionPct != null && area.commissionPct !== '') ? Number(area.commissionPct) : 10;
@@ -6458,7 +6477,13 @@ const ADVISORY_RULES = [
     // If today is Aug-Oct (glut), suggest holding until Feb-Apr
     if (currentMonth < 7 || currentMonth > 9) return null;
     const upcomingHarvests = (areas || [])
-      .filter(a => a.status === 'Active' && (a.breed || '').toLowerCase().match(/rc|rice|palay|mestiso|malagkit|nsic|submarino|dinorado/))
+      // Rice-only advisory (corn pricing seasonality is different — handled elsewhere).
+      // Prefer explicit a.crop; fall back to breed-substring for areas created before
+      // the crop field existed.
+      .filter(a => a.status === 'Active' && (
+        a.crop ? a.crop === 'rice'
+               : (a.breed || '').toLowerCase().match(/rc|rice|palay|mestiso|malagkit|nsic|submarino|dinorado/)
+      ))
       .map(a => ({ area: a.name, ha: a.ha, harvestDate: schedules[a.id]?.harvestDate }))
       .filter(x => x.harvestDate);
     if (upcomingHarvests.length === 0) return null;
@@ -8895,9 +8920,12 @@ function computeWeatherAlerts(weatherData, areas, thresholds = DEFAULT_WX_THRESH
   // --- 3-day cumulative rain (skip AWD irrigation) ----------------------
   const rain3day = (d.precipitation_sum.slice(0,3) || []).reduce((s,x) => s + (x||0), 0);
   const riceAreas = (areas || []).filter(a => {
-    const breed = (a.breed || '').toLowerCase();
     const status = a.status || '';
-    return status === 'Active' && (breed.includes('rc') || breed.includes('palay') || breed.includes('rice') || breed.includes('mestiso') || breed.includes('malagkit') || breed.includes('dinorado') || breed.includes('submarino'));
+    if (status !== 'Active') return false;
+    // Prefer explicit crop field; fall back to breed substring for legacy data.
+    if (a.crop) return a.crop === 'rice';
+    const breed = (a.breed || '').toLowerCase();
+    return breed.includes('rc') || breed.includes('palay') || breed.includes('rice') || breed.includes('mestiso') || breed.includes('malagkit') || breed.includes('dinorado') || breed.includes('submarino');
   });
   if (rain3day >= t.skipAwdRainMm && riceAreas.length > 0) {
     alerts.push({
