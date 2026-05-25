@@ -21,6 +21,8 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css">
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+<!-- SheetJS for the Excel backup export -->
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -3558,7 +3560,173 @@ function NpkTracker({ areaTasks, ha, mobile, fertilizerPrices, setFertilizerPric
 // revenue when crops are sold. Listed here as a registry; the Area form picks
 // from this list. Free-text supervisor names from before this feature still
 // work — they just show a "not in list" warning until added here.
-function SupervisorsPanel({ supervisors, setSupervisors, areas, harvestLogs, mobile, isOwner }) {
+// Build + print a one-page monthly statement for a specific supervisor.
+// Pulls labor logs, cash advances, and harvest-derived commission from the
+// month range and writes them into an A4-styled HTML document opened in a
+// new tab (same pattern as printProtocolSheet). The supervisor can keep
+// the printed statement as proof of payment / reconciliation.
+function printSupervisorStatement({ supervisor, year, month, areas, harvestLogs, laborLogs, cashAdvances }) {
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c]));
+  const fmt = (n) => '₱' + (Math.round(n || 0)).toLocaleString();
+  // Inclusive date window for the named month (e.g. 2026-05)
+  const monthIso = `${year}-${String(month).padStart(2, '0')}`;
+  const inMonth = (iso) => typeof iso === 'string' && iso.startsWith(monthIso);
+
+  const supName = supervisor.name;
+  const defaultPct = supervisor.commissionPct != null ? Number(supervisor.commissionPct) : 10;
+
+  // 1. Labor logs for this supervisor in the month (matched by supervisor name OR by area they manage)
+  const supAreas = (areas || []).filter(a => a.managedBy === supName);
+  const supAreaNames = new Set(supAreas.map(a => a.name));
+  const monthLabor = (laborLogs || []).filter(l => {
+    if (!inMonth(l.date)) return false;
+    // Match by area OR by the supervisor field if the log has one
+    if (l.supervisor === supName) return true;
+    if (l.area && supAreaNames.has(l.area)) return true;
+    return false;
+  });
+  const laborTotal = monthLabor.reduce((s, l) => s + (l.totalCost || (l.workers * l.days * l.dailyWage) || 0), 0);
+
+  // 2. Cash advances given to this supervisor in the month
+  const monthAdvances = (cashAdvances || []).filter(a => a.supervisor === supName && inMonth(a.date));
+  const advancesTotal = monthAdvances.reduce((s, a) => s + (a.amount || 0), 0);
+
+  // 3. Commission earned from harvests in supervised areas during the month
+  const monthHarvests = (harvestLogs || []).filter(h => inMonth(h.date) && supAreaNames.has(h.area));
+  let commissionTotal = 0;
+  const harvestRows = monthHarvests.map(h => {
+    const area = supAreas.find(a => a.name === h.area);
+    const pct = (area && area.commissionPct != null && area.commissionPct !== '')
+      ? Number(area.commissionPct) : defaultPct;
+    const gross = (h.totalKg || 0) * (h.buyerPrice || 0);
+    const com = gross * (pct / 100);
+    commissionTotal += com;
+    return { ...h, pct, gross, com };
+  });
+
+  const netDue = commissionTotal - advancesTotal;  // what the OWNER owes the supervisor (positive) or vice-versa
+  const monthLabel = new Date(`${monthIso}-01T12:00:00`).toLocaleDateString('en-PH', { month:'long', year:'numeric' });
+
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${esc(supName)} — ${esc(monthLabel)} statement</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, sans-serif; color: #222; font-size: 10pt; line-height: 1.35; max-width: 720px; margin: 0 auto; padding: 0; }
+  h1 { margin:0; font-size: 16pt; color: #1b5e20; }
+  h2 { font-size: 11pt; color: #1565c0; margin: 14pt 0 4pt; border-bottom: 1px solid #1565c0; padding-bottom: 2pt; }
+  .meta { color:#555; font-size: 9pt; margin: 4pt 0 12pt; }
+  table { width:100%; border-collapse: collapse; font-size: 9pt; margin-bottom: 4pt; }
+  th, td { border: 0.5pt solid #aaa; padding: 4pt 6pt; text-align: left; vertical-align: top; }
+  th { background:#e8f5e9; font-weight: 700; color:#1b5e20; font-size: 8pt; text-transform: uppercase; }
+  tr.total td { background:#fff8e1; font-weight: 700; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .summary { background:#f5f5f5; padding: 8pt 12pt; border-radius: 4pt; margin-top: 12pt; }
+  .summary table { width: auto; }
+  .summary th, .summary td { border: none; padding: 3pt 12pt 3pt 0; }
+  .net { font-size: 12pt; font-weight: 800; color: ${netDue >= 0 ? '#1b5e20' : '#c62828'}; }
+  .footer { margin-top: 24pt; font-size: 8pt; color: #888; }
+  .sig { margin-top: 24pt; display: flex; justify-content: space-between; gap: 20pt; }
+  .sig div { flex: 1; border-top: 1pt solid #333; padding-top: 4pt; text-align: center; font-size: 9pt; }
+  .noprint { display: none; }
+  @media screen {
+    body { padding: 16px; }
+    .noprint { display: flex; gap: 8px; margin-bottom: 16px; }
+    .noprint button { background:#1565c0; color:white; border:none; border-radius: 6px; padding: 8px 16px; font-weight: 700; cursor: pointer; }
+    .noprint button.close { background:#c62828; }
+  }
+</style></head><body>
+<div class="noprint">
+  <button onclick="window.print()">🖨️ Print</button>
+  <button class="close" onclick="try{window.close();}catch(e){} setTimeout(function(){location.href='https://abundance.mak-ct.com/';}, 80);">✕ Close</button>
+</div>
+
+<h1>Supervisor Statement</h1>
+<div class="meta">
+  <strong>${esc(supName)}</strong>${supervisor.contact ? ` · 📞 ${esc(supervisor.contact)}` : ''}<br>
+  Period: <strong>${esc(monthLabel)}</strong><br>
+  Default commission: ${defaultPct}% · Manages: ${supAreas.length ? supAreas.map(a => esc(a.name)).join(', ') : '<em>(no areas assigned)</em>'}<br>
+  Generated: ${new Date().toLocaleString('en-PH')}
+</div>
+
+<h2>1. Harvests + Commissions Earned</h2>
+${harvestRows.length === 0 ? '<p style="color:#999; font-style:italic;">No harvests recorded for supervised areas this month.</p>' : `
+<table>
+  <thead><tr><th>Date</th><th>Area</th><th>Bags</th><th>kg</th><th>₱/kg</th><th class="num">Gross</th><th>Rate</th><th class="num">Commission</th></tr></thead>
+  <tbody>
+    ${harvestRows.map(h => `<tr>
+      <td>${esc(new Date(h.date).toLocaleDateString('en-PH', { month:'short', day:'numeric' }))}</td>
+      <td>${esc(h.area)}</td>
+      <td class="num">${(h.bags || 0).toLocaleString()}</td>
+      <td class="num">${(h.totalKg || 0).toLocaleString()}</td>
+      <td class="num">${h.buyerPrice != null ? '₱' + h.buyerPrice : '—'}</td>
+      <td class="num">${fmt(h.gross)}</td>
+      <td class="num">${h.pct}%</td>
+      <td class="num">${fmt(h.com)}</td>
+    </tr>`).join('')}
+    <tr class="total"><td colspan="7">Total commission earned</td><td class="num">${fmt(commissionTotal)}</td></tr>
+  </tbody>
+</table>`}
+
+<h2>2. Cash Advances Drawn</h2>
+${monthAdvances.length === 0 ? '<p style="color:#999; font-style:italic;">No cash advances drawn this month.</p>' : `
+<table>
+  <thead><tr><th>Date</th><th>Reason</th><th class="num">Amount</th><th>Repaid?</th></tr></thead>
+  <tbody>
+    ${monthAdvances.map(a => `<tr>
+      <td>${esc(new Date(a.date).toLocaleDateString('en-PH', { month:'short', day:'numeric' }))}</td>
+      <td>${esc(a.reason || '')}</td>
+      <td class="num">${fmt(a.amount)}</td>
+      <td>${a.repaid ? '✓ Yes' : '—'}</td>
+    </tr>`).join('')}
+    <tr class="total"><td colspan="2">Total advances</td><td class="num">${fmt(advancesTotal)}</td><td></td></tr>
+  </tbody>
+</table>`}
+
+<h2>3. Labor Logged (for reference)</h2>
+<div style="font-size:9pt; color:#666; margin-bottom:4pt;">Labor cost is part of farm operating expenses, not paid to the supervisor directly. Included so both sides see the same picture.</div>
+${monthLabor.length === 0 ? '<p style="color:#999; font-style:italic;">No labor logs this month.</p>' : `
+<table>
+  <thead><tr><th>Date</th><th>Area</th><th>Task</th><th>Workers</th><th>Days</th><th class="num">Total cost</th></tr></thead>
+  <tbody>
+    ${monthLabor.map(l => `<tr>
+      <td>${esc(new Date(l.date).toLocaleDateString('en-PH', { month:'short', day:'numeric' }))}</td>
+      <td>${esc(l.area || '')}</td>
+      <td>${esc(l.task || '')}</td>
+      <td class="num">${l.workers || 0}</td>
+      <td class="num">${l.days || 0}</td>
+      <td class="num">${fmt(l.totalCost || (l.workers * l.days * l.dailyWage) || 0)}</td>
+    </tr>`).join('')}
+    <tr class="total"><td colspan="5">Total labor cost (farm expense)</td><td class="num">${fmt(laborTotal)}</td></tr>
+  </tbody>
+</table>`}
+
+<div class="summary">
+  <table>
+    <tr><th>Commission earned this month</th><td class="num">${fmt(commissionTotal)}</td></tr>
+    <tr><th>Less: cash advances drawn</th><td class="num">−${fmt(advancesTotal)}</td></tr>
+    <tr><th>NET DUE TO SUPERVISOR</th><td class="num net">${netDue >= 0 ? '+' : ''}${fmt(netDue)}</td></tr>
+  </table>
+</div>
+
+<div class="sig">
+  <div>Supervisor signature<br><span style="color:#888; font-size:8pt;">(${esc(supName)})</span></div>
+  <div>Owner signature<br><span style="color:#888; font-size:8pt;">(Kit Taguba, MAK-CT)</span></div>
+</div>
+
+<div class="footer">
+  Abundance Farm · abundance.mak-ct.com · Statement generated ${new Date().toLocaleDateString('en-PH', { weekday:'long', month:'long', day:'numeric', year:'numeric' })}
+</div>
+</body></html>`;
+  const w = window.open("", "_blank", "width=900,height=700");
+  if (!w) { alert("Pop-up blocked — please allow pop-ups and try again."); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
+function SupervisorsPanel({ supervisors, setSupervisors, areas, harvestLogs, laborLogs, cashAdvances, mobile, isOwner }) {
+  // Default statement month = current month (so the most common "show me this
+  // month's statement" use-case is one click away)
+  const today = new Date();
+  const [statementMonth, setStatementMonth] = useState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`);
   const [showAdd, setShowAdd] = useState(false);
   const [draft, setDraft] = useState({ name: "", contact: "", commissionPct: 10, notes: "" });
 
@@ -3617,9 +3785,17 @@ function SupervisorsPanel({ supervisors, setSupervisors, areas, harvestLogs, mob
 
   return (
     <div style={{ marginTop:12 }}>
-      {!showAdd && (
-        <button onClick={() => setShowAdd(true)} style={{ background:"#1565c0", color:"white", border:"none", borderRadius:8, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer", marginBottom:10 }}>+ Add supervisor</button>
-      )}
+      <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginBottom:10 }}>
+        {!showAdd && (
+          <button onClick={() => setShowAdd(true)} style={{ background:"#1565c0", color:"white", border:"none", borderRadius:8, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }}>+ Add supervisor</button>
+        )}
+        {supervisors.length > 0 && (
+          <label style={{ fontSize:11, color:"#666", display:"flex", alignItems:"center", gap:6 }}>
+            Statement month:
+            <input type="month" value={statementMonth} onChange={e => setStatementMonth(e.target.value)} style={{ padding:"4px 8px", border:"1px solid #ddd", borderRadius:6, fontSize:12, fontWeight:700, color:"#1565c0" }} />
+          </label>
+        )}
+      </div>
       {showAdd && (
         <div style={{ background:"#e3f2fd", borderRadius:10, padding:12, marginBottom:10 }}>
           <div style={{ display:"grid", gridTemplateColumns: mobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap:8 }}>
@@ -3668,6 +3844,17 @@ function SupervisorsPanel({ supervisors, setSupervisors, areas, harvestLogs, mob
                     earned ₱{Math.round(st.commission).toLocaleString()}
                   </div>
                 )}
+                <button
+                  onClick={() => {
+                    const [yr, mo] = statementMonth.split('-').map(Number);
+                    printSupervisorStatement({
+                      supervisor: s, year: yr, month: mo,
+                      areas, harvestLogs, laborLogs, cashAdvances,
+                    });
+                  }}
+                  title={`Open ${statementMonth} statement for ${s.name} in a new tab (print-ready)`}
+                  style={{ background:"#e8f5e9", color:"#1b5e20", border:"1px solid #a5d6a7", borderRadius:6, padding:"3px 10px", fontSize:11, fontWeight:700, cursor:"pointer" }}
+                >📄 Statement</button>
                 {isOwner && (
                   <button onClick={() => removeSupervisor(s.id)} title="Remove supervisor" style={{ background:"#ffcdd2", color:"#c62828", border:"none", borderRadius:6, padding:"3px 8px", fontSize:11, fontWeight:700, cursor:"pointer" }}>Remove</button>
                 )}
@@ -3775,7 +3962,7 @@ function AreasManager({ areas, setAreas, schedules, breeds, taskMeta, setTaskMet
           <span style={{ fontSize:11, color:"#999", fontWeight:500 }}>10% porsiyento per harvest by default</span>
         </button>
         {showSupervisors && (
-          <SupervisorsPanel supervisors={supervisors} setSupervisors={setSupervisors} areas={areas} harvestLogs={harvestLogs} mobile={mobile} isOwner={isOwner} />
+          <SupervisorsPanel supervisors={supervisors} setSupervisors={setSupervisors} areas={areas} harvestLogs={harvestLogs} laborLogs={laborLogs} cashAdvances={cashAdvances} mobile={mobile} isOwner={isOwner} />
         )}
       </div>
 
@@ -7346,6 +7533,94 @@ const ADVISORY_RULES = [
     return advisories;
   },
 
+  // C1c: Weather → task risk. Cross-references the 14-day Open-Meteo forecast
+  // with upcoming weather-sensitive tasks (spraying, fertilizing, harvest,
+  // transplanting). Surfaces actionable cards like "🌧 Heavy rain Thu —
+  // Plot B transplant at risk". Information already lives in two unconnected
+  // tabs (Weather + Tasks); this stitches them together so nothing falls
+  // through the cracks.
+  function weatherTaskRisk({ allTasks, weather }) {
+    if (!weather || !weather.data || !weather.data.daily) return null;
+    const d = weather.data.daily;
+    if (!Array.isArray(d.time) || !Array.isArray(d.precipitation_sum)) return null;
+
+    // Build a date → forecast map for the next 14 days
+    const forecast = {};
+    for (let i = 0; i < d.time.length; i++) {
+      forecast[d.time[i]] = {
+        date: d.time[i],
+        rainMm: d.precipitation_sum[i] || 0,
+        windKph: (d.wind_speed_10m_max && d.wind_speed_10m_max[i]) || 0,
+        rainProb: (d.precipitation_probability_max && d.precipitation_probability_max[i]) || 0,
+      };
+    }
+
+    // Classify what counts as weather-sensitive
+    const isSpray = (a) => /spray|fungicide|herbicide|insecticide|FAA/i.test(a);
+    const isFertilizer = (a) => /fertilizer|n[123]k[123]|basal|top.?dress|side.?dress|k applic/i.test(a);
+    const isHarvest = (a) => /harvest/i.test(a);
+    const isTransplant = (a) => /transplant|sowing|direct seed|planting \(/i.test(a);
+
+    // For each upcoming weather-sensitive task in the forecast window, check
+    // if its planned date has rain/wind that would interfere.
+    const today = new Date().toISOString().slice(0, 10);
+    const risky = [];
+    (allTasks || []).forEach(t => {
+      const date = t.planStart || t.planEnd;
+      if (!date || date < today) return;
+      const f = forecast[date];
+      if (!f) return; // outside forecast window
+      const status = t.status || 'Not Started';
+      if (['Completed','Done','Skipped','Cancelled','Not Done'].includes(status)) return;
+      const activity = t.activity || '';
+      let risk = null;
+      if (isSpray(activity) && f.rainMm >= 5) {
+        risk = `Spray washes off — ${f.rainMm.toFixed(0)}mm rain forecast`;
+      } else if (isSpray(activity) && f.windKph >= 25) {
+        risk = `Spray drift / poor coverage — ${f.windKph.toFixed(0)} kph wind`;
+      } else if (isFertilizer(activity) && f.rainMm >= 25) {
+        risk = `Heavy rain leaches nutrients — ${f.rainMm.toFixed(0)}mm forecast`;
+      } else if (isHarvest(activity) && f.rainMm >= 15) {
+        risk = `Wet harvest = grain loss + drying problems — ${f.rainMm.toFixed(0)}mm rain`;
+      } else if (isHarvest(activity) && f.windKph >= 35) {
+        risk = `Lodging risk during harvest — ${f.windKph.toFixed(0)} kph wind`;
+      } else if (isTransplant(activity) && f.rainMm >= 30) {
+        risk = `Field may flood during transplant — ${f.rainMm.toFixed(0)}mm rain`;
+      }
+      if (risk) {
+        risky.push({ task: t, date, risk, forecast: f });
+      }
+    });
+    if (risky.length === 0) return null;
+
+    // Group by date for a clean message
+    const byDate = {};
+    risky.forEach(r => {
+      if (!byDate[r.date]) byDate[r.date] = [];
+      byDate[r.date].push(r);
+    });
+    const dates = Object.keys(byDate).sort();
+    const firstDate = dates[0];
+    const firstDay = new Date(firstDate).toLocaleDateString('en-PH', { weekday:'short', month:'short', day:'numeric' });
+    const evidence = risky.slice(0, 8).map(r => {
+      const dayLabel = new Date(r.date).toLocaleDateString('en-PH', { weekday:'short', month:'short', day:'numeric' });
+      return `${dayLabel}: ${r.task.area} · ${r.task.activity} — ${r.risk}`;
+    });
+    // Rough peso impact: each at-risk task that fails costs the labor of
+    // re-doing it. Use ₱2000/event as a placeholder.
+    const pesoImpact = risky.length * 2000;
+    return {
+      id: 'weather-task-risk',
+      category: 'risk', severity: risky.length >= 3 ? 'high' : 'medium',
+      title: `${risky.length} upcoming task${risky.length === 1 ? '' : 's'} at risk from weather (starts ${firstDay})`,
+      detail: `The Open-Meteo 14-day forecast shows weather that will interfere with planned tasks. Reschedule, prepare protection, or skip the wash-off events. Spray events are most rain-sensitive (any > 5mm reduces efficacy); top-dress fertilizer loses N to heavy rain (>25mm); harvest gets grain loss + drying problems above 15mm.`,
+      pesoImpact,
+      horizon: 'Next 14 days',
+      link: 'tasks',
+      evidence,
+    };
+  },
+
   // C2: AWD irrigation savings (only if any area currently on default flooded protocol AND no AWD tasks done)
   function awdSavings({ areas, allTasks }) {
     const flooded = (areas || []).filter(a => a.status === 'Active' && a.protocol !== 'kadanny' && !(a.plantingMethod || '').includes('direct'));
@@ -7797,6 +8072,7 @@ function AdvisorTab({
   purchases, harvestLogs, laborLogs, cashAdvances, fuelLogs, maintenanceLogs, electricityBills,
   areas, schedules, breeds, allTasks, supervisors, diagnoses, inventoryAlerts,
   openingCash, recurringObligations, cashflowSettings, forecastOverrides,
+  fertilizerPrices, weather,
 }) {
   const mobile = useIsMobile();
   const [priceLog, setPriceLog] = useState([]);
@@ -7818,9 +8094,9 @@ function AdvisorTab({
 
   const advisories = useMemo(() => runAdvisoryRules({
     purchases, harvestLogs, laborLogs, supervisors, areas, schedules, breeds, allTasks, diagnoses, priceLog, nfaFloor, inventoryAlerts,
-    fertilizerPrices,
+    fertilizerPrices, weather,
     settings: cashflowSettings, cashflowForecast: cf,
-  }), [purchases, harvestLogs, laborLogs, supervisors, areas, schedules, breeds, allTasks, diagnoses, priceLog, nfaFloor, inventoryAlerts, fertilizerPrices, cashflowSettings, cf]);
+  }), [purchases, harvestLogs, laborLogs, supervisors, areas, schedules, breeds, allTasks, diagnoses, priceLog, nfaFloor, inventoryAlerts, fertilizerPrices, weather, cashflowSettings, cf]);
 
   const filtered = advisories.filter(a => categoryFilter === 'all' || a.category === categoryFilter).filter(a => !dismissed[a.id]);
   const totalImpact = filtered.reduce((s, a) => s + (a.pesoImpact || 0), 0);
@@ -9376,6 +9652,161 @@ function UpcomingFertilizerNeeds({ areas, allTasks, stockMap, fertilizerPrices, 
 }
 
 // ============================================================
+// EXCEL BACKUP PANEL — one-click full-state export to .xlsx
+// ============================================================
+// Every synced-state key becomes a worksheet (arrays → rows, dicts → flattened
+// key/value pairs). Filename includes the export date so backups don't
+// collide. Useful for: tax/audit/legal handoff, year-end accountant package,
+// switching devices, peace-of-mind insurance against a bad day. SheetJS
+// (XLSX) is loaded via CDN — see the <script> tag in <head>.
+function ExcelBackupPanel({ bag, mobile }) {
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [lastBackup, setLastBackup] = useState(null);
+
+  const summary = useMemo(() => {
+    let arrCount = 0, dictCount = 0, totalRows = 0;
+    Object.entries(bag || {}).forEach(([k, v]) => {
+      if (typeof v === 'function') return;
+      if (Array.isArray(v)) { arrCount++; totalRows += v.length; }
+      else if (v && typeof v === 'object') {
+        dictCount++;
+        Object.values(v).forEach(item => {
+          if (Array.isArray(item)) totalRows += item.length;
+          else totalRows += 1;
+        });
+      }
+    });
+    return { arrCount, dictCount, totalRows };
+  }, [bag]);
+
+  const downloadBackup = async () => {
+    if (typeof XLSX === 'undefined') {
+      alert('Excel library is still loading — please wait a moment and try again.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const wb = XLSX.utils.book_new();
+      // README sheet: explains the backup + has metadata
+      const readme = [
+        ['Abundance Farm — Data Backup'],
+        ['Exported', new Date().toISOString()],
+        ['Source', 'https://abundance.mak-ct.com'],
+        [''],
+        ['This workbook contains a snapshot of every data category in your account.'],
+        ['Each subsequent worksheet is one category. To restore, the data must be'],
+        ['imported manually via the developer console — there is no automatic'],
+        ['import button (intentional: prevents accidental overwrites).'],
+        [''],
+        ['Sheet contents:'],
+      ];
+      // Build one sheet per state key
+      const sheetNames = [];
+      Object.entries(bag || {}).forEach(([key, value]) => {
+        if (typeof value === 'function') return;
+        // Skip empty arrays/objects so the workbook stays clean
+        const isEmpty = (Array.isArray(value) && value.length === 0)
+                     || (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0);
+        if (value == null || isEmpty) return;
+        // Sheet names max 31 chars in Excel
+        const sheetName = key.replace(/^rfops-/, '').slice(0, 31);
+        let aoa = [];
+        if (Array.isArray(value)) {
+          // Array of objects → tabular sheet
+          if (value.length === 0) { aoa = [['(empty)']]; }
+          else if (typeof value[0] === 'object' && value[0] != null) {
+            // Union of all keys across all rows (defensive — rows may differ)
+            const headers = [...new Set(value.flatMap(r => Object.keys(r || {})))];
+            aoa = [headers, ...value.map(r => headers.map(h => formatCell(r && r[h])))];
+          } else {
+            // Primitive array (e.g. inventoryItems strings)
+            aoa = [['value'], ...value.map(v => [String(v)])];
+          }
+          readme.push([sheetName, value.length + ' rows']);
+        } else if (typeof value === 'object') {
+          // Dict — flatten to key/value pairs. If value is array, write inline JSON.
+          aoa = [['key', 'value']];
+          Object.entries(value).forEach(([k, v]) => {
+            if (Array.isArray(v)) {
+              v.forEach((item, i) => aoa.push([`${k}[${i}]`, formatCell(item)]));
+            } else if (v && typeof v === 'object') {
+              Object.entries(v).forEach(([kk, vv]) => aoa.push([`${k}.${kk}`, formatCell(vv)]));
+            } else {
+              aoa.push([k, formatCell(v)]);
+            }
+          });
+          readme.push([sheetName, (aoa.length - 1) + ' entries']);
+        }
+        if (aoa.length > 0) {
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          XLSX.utils.book_append_sheet(wb, ws, sheetName);
+          sheetNames.push(sheetName);
+        }
+      });
+      // Prepend README
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(readme), 'README');
+      // Move README to the front
+      wb.SheetNames = ['README', ...wb.SheetNames.filter(n => n !== 'README')];
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const filename = `abundance-farm-backup-${dateStr}.xlsx`;
+      XLSX.writeFile(wb, filename);
+      setLastBackup({ at: new Date().toISOString(), filename, sheets: sheetNames.length });
+    } catch (e) {
+      alert('Backup failed: ' + (e.message || String(e)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Format a cell value for Excel display. Objects → JSON string. Dates kept
+  // as-is. Photos / data URLs truncated to first 80 chars (full base64 would
+  // blow up file size).
+  function formatCell(v) {
+    if (v == null) return '';
+    if (typeof v === 'string') {
+      if (v.startsWith('data:image')) return '[image data, ' + v.length + ' bytes]';
+      return v;
+    }
+    if (typeof v === 'number' || typeof v === 'boolean') return v;
+    try { return JSON.stringify(v); } catch { return String(v); }
+  }
+
+  return (
+    <div style={{ marginTop:16, background:"#e3f2fd", borderRadius:12, padding: mobile ? "10px 12px" : "12px 16px", border:"1px solid #90caf9" }}>
+      <div onClick={() => setOpen(!open)} style={{ cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <span style={{ fontWeight:700, fontSize:13, color:"#0d47a1" }}>
+          {open ? "▾" : "▸"} 📥 Excel Backup
+          <span style={{ marginLeft:8, fontSize:11, color:"#555", fontWeight:500 }}>
+            {summary.totalRows.toLocaleString()} rows · {summary.arrCount + summary.dictCount} categories
+          </span>
+        </span>
+        <span style={{ fontSize:10, color:"#1565c0" }}>One-click full export for tax / audit / continuity</span>
+      </div>
+      {open && (
+        <div style={{ marginTop:10, fontSize:12, color:"#555", lineHeight:1.5 }}>
+          <p style={{ margin:"4px 0 10px" }}>
+            Download <strong>every category of your farm data as one Excel workbook</strong> — one worksheet per category (areas, harvests, purchases, labor, prices, etc.). A README sheet at the front lists what's where and how many rows per sheet. Photos / base64 images are summarised as <code>[image data, N bytes]</code> to keep the file small.
+          </p>
+          <p style={{ margin:"4px 0 10px" }}>
+            <strong>Use this for:</strong> handing data to your accountant at year-end, BIR audit prep, switching devices, restoring after an accident, or just peace-of-mind insurance.
+          </p>
+          {lastBackup && (
+            <div style={{ background:"#e8f5e9", borderRadius:6, padding:"6px 10px", fontSize:11, color:"#1b5e20", marginBottom:10 }}>
+              ✓ Last backup: <strong>{lastBackup.filename}</strong> ({lastBackup.sheets} sheets) at {new Date(lastBackup.at).toLocaleTimeString('en-PH', { hour:'numeric', minute:'2-digit' })}
+            </div>
+          )}
+          <button onClick={downloadBackup} disabled={busy} style={{ padding:"10px 18px", borderRadius:8, border:"none", background: busy ? "#bbb" : "#1565c0", color:"white", fontSize:13, fontWeight:700, cursor: busy ? "wait" : "pointer" }}>
+            {busy ? "⏳ Building workbook…" : "📥 Download backup (.xlsx)"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // DEMO DATA PANEL — collapsed at the bottom of the Inventory tab
 // ============================================================
 // Lets the user load ~6 years of simulated farm operations to stress-test
@@ -9960,6 +10391,9 @@ function InventoryTracker({ purchases, setPurchases, usages, setUsages, areas, a
           mobile={mobile}
         />
       )}
+
+      {/* EXCEL BACKUP — one-button export of every synced state key as a multi-sheet .xlsx */}
+      <ExcelBackupPanel bag={demoStateBag} mobile={mobile} />
 
       {/* DEMO DATA panel — collapsed by default */}
       <DemoDataPanel bag={demoStateBag} mobile={mobile} />
@@ -14248,6 +14682,7 @@ function AppShell({ auth, mobile }) {
           purchases={purchases} harvestLogs={harvestLogs} laborLogs={laborLogs} cashAdvances={cashAdvances} fuelLogs={fuelLogs} maintenanceLogs={maintenanceLogs} electricityBills={electricityBills}
           areas={areas} schedules={schedules} breeds={breeds} allTasks={allTasks} supervisors={supervisors} diagnoses={diagnoses} inventoryAlerts={inventoryAlerts}
           openingCash={openingCash} recurringObligations={recurringObligations} cashflowSettings={cashflowSettings} forecastOverrides={forecastOverrides}
+          fertilizerPrices={fertilizerPrices} weather={weather}
         />}
         {tab === "equipment" && <EquipmentTab equipment={equipment} setEquipment={setEquipment} maintenanceLogs={maintenanceLogs} setMaintenanceLogs={setMaintenanceLogs} fuelLogs={fuelLogs} setFuelLogs={setFuelLogs} toolInventory={toolInventory} setToolInventory={setToolInventory} />}
         {tab === "inventory" && <InventoryTracker

@@ -33,7 +33,7 @@ if git diff --cached --quiet; then
   echo "Nothing to commit — repo is already clean."
 else
   echo ">> Committing..."
-  git commit -m "NDVI: change default layer name to VEGETATION_INDEX (matches Sentinel Hub preset)
+  git commit -m "3 high-impact additions: Excel backup, weather-task risk, supervisor monthly statement
 
 Adds automated test coverage for the NDVI feature shipped in 7e3b951.
 While writing the tests one real bug surfaced — the ISO week-year
@@ -79,7 +79,34 @@ Test totals after this commit:
   - FAA units: 8 tests
   - JSX parses cleanly: 842,924 bytes
 
-NEW (from 7e3b951, restated): 'NDVI' sub-tab on every area shows a weekly grid of Sentinel-2
+1. EXCEL ONE-CLICK BACKUP
+   New ExcelBackupPanel at the top of the Inventory → Stock Levels tab.
+   Loads SheetJS via CDN, builds a multi-sheet .xlsx with one sheet per
+   synced-state key (~20 sheets). README sheet at the front lists what's
+   where + row counts. Photos/base64 image data are summarised as
+   '[image data, N bytes]' so the file stays small. Dated filename.
+   Critical for tax/audit/BIR handoff and peace-of-mind insurance.
+
+2. WEATHER → TASK RISK ADVISOR
+   New ADVISORY_RULES rule weatherTaskRisk cross-references the 14-day
+   Open-Meteo forecast with upcoming weather-sensitive tasks. Surfaces
+   'X tasks at risk from weather' Dashboard cards with per-task evidence:
+   sprays wash off above 5mm rain or drift above 25kph wind; top-dress
+   leaches above 25mm; harvest gets grain loss above 15mm; transplant
+   floods above 30mm. Data was already in two unconnected tabs.
+   Threaded weather through AdvisorTab → runAdvisoryRules context.
+
+3. SUPERVISOR MONTHLY STATEMENT
+   New 'Statement month' picker on Supervisors panel + per-supervisor
+   '📄 Statement' button. Opens a print-ready A4 HTML statement in a new
+   tab showing: harvests + commissions earned, cash advances drawn, labor
+   logged for reference, net due to supervisor, and signature lines.
+   Saves the manual computation Kit was doing each month for 7 supervisors.
+
+Refactor: threaded laborLogs + cashAdvances into SupervisorsPanel,
+threaded fertilizerPrices + weather into AdvisorTab.
+
+Earlier bundled (from prior commits): 'NDVI' sub-tab on every area shows a weekly grid of Sentinel-2
 vegetation snapshots from transplant date to today, with growth-stage
 milestones highlighted on the closest pass. Click any thumbnail to
 enlarge with full date + days-after-transplant + cloud cover context.
