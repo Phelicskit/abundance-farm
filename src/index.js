@@ -612,18 +612,30 @@ export default {
         }
       } catch (e) { /* KV unavailable; fall through to live fetch */ }
 
-      // Compute polygon bounding box in EPSG:4326 (lat,lon)
+      // Compute polygon bounding box. Convert from EPSG:4326 (lat/lon) to
+      // EPSG:3857 (Web Mercator meters) because that's what Sentinel Hub's
+      // NDVI WMS layer expects (the working /api/ndvi-tile endpoint uses the
+      // same CRS — see lines ~471 above).
       const lats = polygon.map(p => p[0]);
       const lons = polygon.map(p => p[1]);
       const minLat = Math.min(...lats), maxLat = Math.max(...lats);
       const minLon = Math.min(...lons), maxLon = Math.max(...lons);
-      // Pad by ~10% of width
+      // Pad by ~10% in lat/lon space first, then project to meters.
       const padLat = (maxLat - minLat) * 0.1;
       const padLon = (maxLon - minLon) * 0.1;
-      const bboxLat0 = minLat - padLat, bboxLat1 = maxLat + padLat;
-      const bboxLon0 = minLon - padLon, bboxLon1 = maxLon + padLon;
-      // Aspect ratio → height
-      const aspectRatio = (bboxLat1 - bboxLat0) / (bboxLon1 - bboxLon0);
+      const lat0 = minLat - padLat, lat1 = maxLat + padLat;
+      const lon0 = minLon - padLon, lon1 = maxLon + padLon;
+      // EPSG:4326 → EPSG:3857 (spherical Mercator). Standard formulas.
+      const toMercator = (lat, lon) => {
+        const x = (lon * 20037508.34) / 180;
+        const yRaw = Math.log(Math.tan(((90 + lat) * Math.PI) / 360)) / (Math.PI / 180);
+        const y = (yRaw * 20037508.34) / 180;
+        return [x, y];
+      };
+      const [minX, minY] = toMercator(lat0, lon0);
+      const [maxX, maxY] = toMercator(lat1, lon1);
+      // Aspect ratio → height (in pixels, matching the meter-bbox aspect)
+      const aspectRatio = (maxY - minY) / (maxX - minX);
       const height = Math.round(width * aspectRatio);
 
       const layerName = env.SENTINEL_HUB_LAYER_NAME || 'NDVI';
@@ -637,21 +649,24 @@ export default {
       wms.searchParams.set('HEIGHT', String(Math.max(64, height)));
       wms.searchParams.set('FORMAT', 'image/png');
       wms.searchParams.set('TRANSPARENT', 'true');
-      wms.searchParams.set('CRS', 'EPSG:4326');
-      // EPSG:4326 BBOX axis order in WMS 1.3.0 is lat,lon (per OGC spec).
-      wms.searchParams.set('BBOX', `${bboxLat0},${bboxLon0},${bboxLat1},${bboxLon1}`);
-      // Narrow ±2-day TIME window around the requested date
+      wms.searchParams.set('CRS', 'EPSG:3857');
+      wms.searchParams.set('BBOX', `${minX},${minY},${maxX},${maxY}`);
+      // Narrow ±3-day TIME window around the requested date (wider than ±2
+      // because the catalog already told us this date has an image, but
+      // Sentinel Hub's WMS matches against the END of the day so ±3 gives
+      // some slack).
       const d = new Date(date);
-      const before = new Date(d); before.setDate(before.getDate() - 2);
-      const after  = new Date(d); after.setDate(after.getDate()  + 2);
+      const before = new Date(d); before.setDate(before.getDate() - 3);
+      const after  = new Date(d); after.setDate(after.getDate()  + 3);
       wms.searchParams.set('TIME', `${before.toISOString().slice(0,10)}/${after.toISOString().slice(0,10)}`);
-      wms.searchParams.set('VERSION', '1.3.0');
 
       try {
         const upstream = await fetch(wms.toString());
         if (!upstream.ok) {
           const t = await upstream.text();
-          return jsonResponse({ error: `WMS ${upstream.status}: ${t.slice(0, 200)}` }, 502);
+          // Strip XML namespaces and whitespace for readability, return more chars
+          const cleaned = t.replace(/<\?xml[^?]*\?>/g, '').replace(/xmlns(:\w+)?="[^"]*"/g, '').replace(/\s+/g, ' ').trim().slice(0, 600);
+          return jsonResponse({ error: `WMS ${upstream.status}: ${cleaned}`, wmsUrl: wms.toString().replace(/INSTANCE.*?\//, 'INSTANCE/') }, 502);
         }
         const ab = await upstream.arrayBuffer();
         // Convert to base64 data URL for direct <img> consumption + KV storage
