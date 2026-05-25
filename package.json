@@ -10,7 +10,7 @@
     "deploy:dry": "bash bin/deploy.sh --dry-run",
     "deploy:rotate-secret": "bash bin/deploy.sh --rotate-secret",
     "tail": "wrangler tail",
-    "test": "node test/smoke.mjs"
+    "test": "node test/smoke.mjs && node test/faa-units.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

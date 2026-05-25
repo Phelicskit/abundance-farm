@@ -37,7 +37,8 @@ r = await call('GET', '/');
 check('static asset fall-through', r.status === 200 && r.text === 'static-asset');
 
 r = await call('GET', '/api/me');
-check('me on empty system reports userCount 0', r.status === 200 && r.json && r.json.userCount === 0);
+check('me on empty system says needsBootstrap=true', r.status === 200 && r.json && r.json.needsBootstrap === true);
+check('me on empty system does NOT leak userCount', r.status === 200 && r.json && r.json.userCount === undefined);
 
 r = await call('POST', '/api/users', {
   body: { email: 'kit@example.com', name: 'Kit', password: 'password123', role: 'owner' },

@@ -130,10 +130,11 @@ export default {
     if (url.pathname === '/api/me' && request.method === 'GET') {
       const ctxAuth = await resolveSession(request, env);
       if (!ctxAuth.user) {
-        // Help the frontend bootstrap: if no users exist, tell it so.
+        // Help the frontend bootstrap: tell it whether any users exist
+        // (boolean only — exact count is not the public's business).
         const users = await readUsers(env);
-        const userCount = Object.keys(users).length;
-        return jsonResponse({ user: null, userCount }, 200);
+        const needsBootstrap = Object.keys(users).length === 0;
+        return jsonResponse({ user: null, needsBootstrap }, 200);
       }
       return jsonResponse({ user: publicUser(ctxAuth.user) });
     }
