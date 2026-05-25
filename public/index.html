@@ -2353,6 +2353,13 @@ function GoogleParcelMap({ area, updateArea, allAreas, apiKey, mobile }) {
   const refOverlaysRef = React.useRef([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
+  // Persist the auth-failure flag across area-switches and tab-switches so the
+  // user doesn't see "Loading Google Maps..." every time before falling back.
+  // First time we detect it we set window.__gmapsHardFail; subsequent mounts
+  // skip Google entirely and go straight to Leaflet.
+  const initialHardFail = (typeof window !== 'undefined') && (window.__gmapsHardFail || window.__gmapsAuthFailed);
+  const [authFailed, setAuthFailed] = useState(!!initialHardFail);
+  const [showHelp, setShowHelp] = useState(false);
   const [mode, setMode] = useState('idle');                  // idle | drawing | editing
   const [showNdvi, setShowNdvi] = useState(false);
   const [ndviAvailable, setNdviAvailable] = useState(null);
@@ -2361,8 +2368,9 @@ function GoogleParcelMap({ area, updateArea, allAreas, apiKey, mobile }) {
   const ndviOverlayRef = React.useRef(null);
   const [computedHa, setComputedHa] = useState(area.polygon ? polygonAreaHa(area.polygon) : 0);
 
-  // Load the API once
+  // Load the API once (skip if a previous mount already saw auth failure)
   useEffect(() => {
+    if (authFailed) return;  // already known-bad; render Leaflet fallback instead
     let cancelled = false;
     loadGoogleMaps(apiKey).then(g => {
       if (cancelled) return;
@@ -2373,17 +2381,52 @@ function GoogleParcelMap({ area, updateArea, allAreas, apiKey, mobile }) {
       let polls = 0;
       const tick = () => {
         if (cancelled) return;
-        if (window.__gmapsAuthFailed) { setError('auth'); return; }
+        if (window.__gmapsAuthFailed) {
+          window.__gmapsHardFail = true;  // remember across remounts
+          setAuthFailed(true); setError('auth'); return;
+        }
         // Belt-and-suspenders: detect Google's own error overlay too. It
         // renders as a div.gm-err-container inside the map div.
         const errEl = mapDivRef.current && mapDivRef.current.querySelector && mapDivRef.current.querySelector('.gm-err-container');
-        if (errEl) { setError('auth'); return; }
+        if (errEl) {
+          window.__gmapsHardFail = true;
+          setAuthFailed(true); setError('auth'); return;
+        }
         if (polls++ < 20) setTimeout(tick, 200);
       };
       setTimeout(tick, 200);
     }).catch(e => { if (!cancelled) setError(e.message || 'load failed'); });
     return () => { cancelled = true; };
-  }, [apiKey]);
+  }, [apiKey, authFailed]);
+
+  // AUTO-FALLBACK: if Google auth failed, render the Leaflet ParcelMap
+  // instead. The user gets a working map (ESRI satellite tiles, no API key
+  // needed) with all the drawing/editing/GPS features. A small dismissable
+  // banner above explains why we switched + how to fix the key if they want
+  // Google back.
+  if (authFailed) {
+    return (
+      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+        <div style={{ background:"#fff8e1", borderLeft:"4px solid #f9a825", borderRadius:8, padding:"10px 14px", fontSize:12, color:"#5d4037", lineHeight:1.5 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, flexWrap:"wrap" }}>
+            <span><strong>🗝️ Google Maps unavailable</strong> — using free ESRI satellite tiles instead. Drawing, editing, and GPS all still work.</span>
+            <button onClick={() => setShowHelp(!showHelp)} style={{ background:"transparent", border:"1px solid #f9a825", color:"#bf360c", borderRadius:6, padding:"3px 10px", fontSize:11, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>
+              {showHelp ? "Hide" : "How to fix Google Maps"}
+            </button>
+          </div>
+          {showHelp && (
+            <ol style={{ fontSize:11, color:"#5d4037", lineHeight:1.5, paddingLeft:18, margin:"8px 0 0" }}>
+              <li><strong>Maps JavaScript API not enabled</strong> on the GCP project. Console → APIs & Services → Library → "Maps JavaScript API" → Enable.</li>
+              <li><strong>HTTP referrer restriction</strong> excludes <code>abundance.mak-ct.com/*</code>. Console → APIs & Services → Credentials → your key → Application restrictions.</li>
+              <li><strong>Billing not enabled</strong> on the GCP project. Console → Billing.</li>
+              <li><strong>Key was regenerated or deleted</strong>. Rotate via <code>wrangler secret put GOOGLE_MAPS_API_KEY</code>.</li>
+            </ol>
+          )}
+        </div>
+        <ParcelMap area={area} updateArea={updateArea} allAreas={allAreas} mobile={mobile} />
+      </div>
+    );
+  }
 
   // Probe NDVI + fetch acquisition date (shared with Leaflet variant)
   useEffect(() => {

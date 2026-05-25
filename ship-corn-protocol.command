@@ -33,10 +33,27 @@ if git diff --cached --quiet; then
   echo "Nothing to commit — repo is already clean."
 else
   echo ">> Committing..."
-  git commit -m "Simulation findings: Ka Danny dashboard fix + Plot D demo date tweak
+  git commit -m "Map: auto-fallback to Leaflet when Google Maps key fails
 
-Two issues surfaced when running the end-to-end simulation against the
-demo dataset:
+User report (screenshot from mobile): the Map sub-tab shows
+'🗝️ Google Maps key needs attention' and renders no map at all when
+Google rejects the API key — for example when the HTTP referrer
+restriction excludes abundance.mak-ct.com, billing was disabled, or the
+Maps JavaScript API was never enabled. The Leaflet variant works fine
+without an API key (ESRI satellite tiles) but the app was stuck on the
+Google variant, leaving the user with a broken map.
+
+Fix: in GoogleParcelMap, when auth-failure is detected (either via the
+global gm_authFailure callback or by spotting Google's own .gm-err-container
+error overlay), set window.__gmapsHardFail so we remember across re-mounts,
+flip an authFailed state, and from then on render the Leaflet ParcelMap
+component instead. The user gets a working satellite map with drawing,
+editing, and GPS — and a small yellow banner above explains why we
+switched plus a 'How to fix Google Maps' fold-out for when they want to
+restore the Google key. Subsequent area switches skip the Google load
+attempt entirely (no more 'Loading Google Maps…' flash).
+
+Two earlier issues also bundled in this commit (from end-to-end simulation):
 
 1. Plot C (Ka Danny protocol) showed 0/0 fertilizer totals on the Dashboard
    per-area card. The card had only two branches — corn vs. rice-default —
