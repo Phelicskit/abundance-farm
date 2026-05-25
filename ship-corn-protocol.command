@@ -33,9 +33,44 @@ if git diff --cached --quiet; then
   echo "Nothing to commit — repo is already clean."
 else
   echo ">> Committing..."
-  git commit -m "URGENT: Fix white-screen crash from Rules of Hooks violation
+  git commit -m "NDVI Timeline: auto-collated weekly Sentinel-2 snapshots per area
 
-USER REPORT: 'It crashes and turns the entire screen white.'
+NEW: 'NDVI' sub-tab on every area shows a weekly grid of Sentinel-2
+vegetation snapshots from transplant date to today, with growth-stage
+milestones highlighted on the closest pass. Click any thumbnail to
+enlarge with full date + days-after-transplant + cloud cover context.
+
+Backend (src/index.js):
+- POST /api/ndvi-history — given polygon + date range, returns the list
+  of available cloud-free Sentinel-2 passes (dates + cloud cover %) via
+  Sentinel Hub WFS catalog. Used by the timeline to know which dates
+  have imagery to fetch.
+- POST /api/ndvi-snapshot — given polygon + date + width, returns a
+  PNG of the NDVI for that area's bounding box at that pass, encoded
+  as base64 data-URL. Cached in KV under ndvi-cache:areaId:date:width
+  for 60 days so repeat reads cost nothing.
+- Auth: signed-in user. Both endpoints 503 if SENTINEL_HUB_INSTANCE_ID
+  is unset.
+
+Frontend (NdviTimeline component in public/index.html):
+- New 'NDVI' sub-tab on every area, between Map and Protocol
+- Header shows area name + date range + stats (cached / fetched / failed
+  counters update in real-time as thumbnails load)
+- 'Backfill all' button fetches every pass in parallel (4 at a time so
+  Sentinel Hub doesn't throttle)
+- Weekly grid: one thumbnail per ISO week (pick lowest cloud-cover when
+  multiple passes in same week)
+- Growth-stage milestones (Sowing/Transplant/Panicle Init/Flowering for
+  rice; Planted/Tasseling/Silking for corn) highlighted with green
+  border + ★ label on the closest pass within ±3 days
+- Each thumbnail shows date, cloud cover (green <10%, amber <30%, red >30%),
+  days-after-transplant (DAT), and milestone if any
+- Lazy load: first 8 thumbnails fetch automatically; rest fetch on click
+- Click thumbnail to enlarge full-screen with full caption
+- Friendly empty states: 'Draw the polygon on the Map tab first' if no
+  polygon; 'Set a Transplant Date' if no date
+
+Bundled — earlier urgent fix:
 
 The previous Google-Maps-fallback commit (c3445b1) put an early-return
 inside GoogleParcelMap that branched on authFailed state — placed BETWEEN

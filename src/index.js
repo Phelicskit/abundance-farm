@@ -501,6 +501,176 @@ export default {
     }
 
     // ============================================================
+    // NDVI HISTORY — list available cloud-free Sentinel-2 passes for an
+    // area's bounding box between two dates. Used by the NDVI Timeline view
+    // to know which dates have imagery to fetch.
+    // POST /api/ndvi-history { polygon: [[lat,lon], ...], fromDate, toDate, maxcc? }
+    //   returns: { passes: [{ date, cloudCoverPercentage }] }
+    // Auth: signed-in user.
+    // ============================================================
+    if (url.pathname === '/api/ndvi-history' && request.method === 'POST') {
+      const ctxAuth = await resolveSession(request, env);
+      if (!ctxAuth.user) return jsonResponse({ error: 'unauthorized' }, 401);
+      if (!env.SENTINEL_HUB_INSTANCE_ID) {
+        return jsonResponse({ error: 'NDVI not configured' }, 503);
+      }
+      let body;
+      try { body = await request.json(); } catch { return jsonResponse({ error: 'invalid json' }, 400); }
+      const polygon = body && body.polygon;
+      const fromDate = (body && body.fromDate) || null;
+      const toDate   = (body && body.toDate)   || new Date().toISOString().slice(0, 10);
+      const maxcc    = Math.max(0, Math.min(100, parseInt(body && body.maxcc || '40', 10)));
+      if (!Array.isArray(polygon) || polygon.length < 3) {
+        return jsonResponse({ error: 'polygon (>=3 [lat,lon] vertices) required' }, 400);
+      }
+      if (!fromDate) {
+        return jsonResponse({ error: 'fromDate required (YYYY-MM-DD)' }, 400);
+      }
+      // Bounding box of the polygon. WFS uses lat,lon order in EPSG:4326.
+      const lats = polygon.map(p => p[0]);
+      const lons = polygon.map(p => p[1]);
+      const pad = 0.005;  // ~500m
+      const bbox = `${Math.min(...lats) - pad},${Math.min(...lons) - pad},${Math.max(...lats) + pad},${Math.max(...lons) + pad}`;
+
+      const typeNamesToTry = (env.SENTINEL_HUB_TYPENAMES || 'DSS2A,DSS2,DSS3').split(',').map(s => s.trim()).filter(Boolean);
+      let workingType = null, errorDetail = '';
+      for (const tn of typeNamesToTry) {
+        try {
+          const wfs = new URL(`https://sh.dataspace.copernicus.eu/ogc/wfs/${env.SENTINEL_HUB_INSTANCE_ID}`);
+          wfs.searchParams.set('SERVICE', 'WFS');
+          wfs.searchParams.set('VERSION', '2.0.0');
+          wfs.searchParams.set('REQUEST', 'GetFeature');
+          wfs.searchParams.set('TYPENAMES', tn);
+          wfs.searchParams.set('BBOX', bbox);
+          wfs.searchParams.set('SRSNAME', 'EPSG:4326');
+          wfs.searchParams.set('TIME', `${fromDate}/${toDate}`);
+          wfs.searchParams.set('MAXFEATURES', '100');
+          wfs.searchParams.set('MAXCC', String(maxcc));
+          wfs.searchParams.set('OUTPUTFORMAT', 'application/json');
+          const r = await fetch(wfs.toString());
+          if (!r.ok) {
+            const t = await r.text();
+            if (r.status === 400) { errorDetail = `${tn}: ${t.slice(0, 120)}`; continue; }
+            return jsonResponse({ error: `WFS ${r.status}: ${t.slice(0, 200)}` }, 502);
+          }
+          const j = await r.json();
+          const feats = (j && Array.isArray(j.features)) ? j.features : [];
+          // De-dupe by date (Sentinel-2 sometimes returns multiple tiles per pass)
+          const seen = new Set();
+          const passes = [];
+          feats.forEach(f => {
+            const props = f.properties || {};
+            const date = props.date || (props.time && props.time.slice(0, 10)) || null;
+            if (!date || seen.has(date)) return;
+            seen.add(date);
+            passes.push({
+              date,
+              cloudCoverPercentage: props.cloudCoverPercentage != null ? props.cloudCoverPercentage : null,
+            });
+          });
+          // Sort newest-first
+          passes.sort((a, b) => b.date.localeCompare(a.date));
+          workingType = tn;
+          return jsonResponse({ passes, usedType: tn, bbox, fromDate, toDate, maxcc });
+        } catch (e) {
+          errorDetail = `${tn}: ${e.message || String(e)}`;
+        }
+      }
+      return jsonResponse({ error: 'No working WFS data source. ' + errorDetail }, 502);
+    }
+
+    // ============================================================
+    // NDVI SNAPSHOT — fetch a single PNG of the NDVI for an area's
+    // bounding box at a specific date. Cached in KV per (area, date)
+    // so repeat reads are free and we don't burn Sentinel Hub quota.
+    // POST /api/ndvi-snapshot { areaId, polygon, date, width? }
+    //   returns: { image: 'data:image/png;base64,...', cached: bool }
+    // Auth: signed-in user.
+    // ============================================================
+    if (url.pathname === '/api/ndvi-snapshot' && request.method === 'POST') {
+      const ctxAuth = await resolveSession(request, env);
+      if (!ctxAuth.user) return jsonResponse({ error: 'unauthorized' }, 401);
+      if (!env.SENTINEL_HUB_INSTANCE_ID) {
+        return jsonResponse({ error: 'NDVI not configured' }, 503);
+      }
+      let body;
+      try { body = await request.json(); } catch { return jsonResponse({ error: 'invalid json' }, 400); }
+      const areaId = body && body.areaId;
+      const polygon = body && body.polygon;
+      const date = body && body.date;
+      const width = Math.max(128, Math.min(1024, parseInt(body && body.width || '512', 10)));
+      if (!areaId || !Array.isArray(polygon) || polygon.length < 3 || !date) {
+        return jsonResponse({ error: 'areaId, polygon, date required' }, 400);
+      }
+
+      // Try KV cache first
+      const cacheKey = `ndvi-cache:${areaId}:${date}:${width}`;
+      try {
+        const cached = await env.PRICES.get(cacheKey);
+        if (cached) {
+          return jsonResponse({ image: cached, cached: true, date, areaId });
+        }
+      } catch (e) { /* KV unavailable; fall through to live fetch */ }
+
+      // Compute polygon bounding box in EPSG:4326 (lat,lon)
+      const lats = polygon.map(p => p[0]);
+      const lons = polygon.map(p => p[1]);
+      const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+      const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+      // Pad by ~10% of width
+      const padLat = (maxLat - minLat) * 0.1;
+      const padLon = (maxLon - minLon) * 0.1;
+      const bboxLat0 = minLat - padLat, bboxLat1 = maxLat + padLat;
+      const bboxLon0 = minLon - padLon, bboxLon1 = maxLon + padLon;
+      // Aspect ratio → height
+      const aspectRatio = (bboxLat1 - bboxLat0) / (bboxLon1 - bboxLon0);
+      const height = Math.round(width * aspectRatio);
+
+      const layerName = env.SENTINEL_HUB_LAYER_NAME || 'NDVI';
+      const wmsHost = env.SENTINEL_HUB_WMS_HOST || 'https://sh.dataspace.copernicus.eu';
+      const wms = new URL(`${wmsHost}/ogc/wms/${env.SENTINEL_HUB_INSTANCE_ID}`);
+      wms.searchParams.set('SERVICE', 'WMS');
+      wms.searchParams.set('REQUEST', 'GetMap');
+      wms.searchParams.set('LAYERS', layerName);
+      wms.searchParams.set('MAXCC', '40');
+      wms.searchParams.set('WIDTH', String(width));
+      wms.searchParams.set('HEIGHT', String(Math.max(64, height)));
+      wms.searchParams.set('FORMAT', 'image/png');
+      wms.searchParams.set('TRANSPARENT', 'true');
+      wms.searchParams.set('CRS', 'EPSG:4326');
+      // EPSG:4326 BBOX axis order in WMS 1.3.0 is lat,lon (per OGC spec).
+      wms.searchParams.set('BBOX', `${bboxLat0},${bboxLon0},${bboxLat1},${bboxLon1}`);
+      // Narrow ±2-day TIME window around the requested date
+      const d = new Date(date);
+      const before = new Date(d); before.setDate(before.getDate() - 2);
+      const after  = new Date(d); after.setDate(after.getDate()  + 2);
+      wms.searchParams.set('TIME', `${before.toISOString().slice(0,10)}/${after.toISOString().slice(0,10)}`);
+      wms.searchParams.set('VERSION', '1.3.0');
+
+      try {
+        const upstream = await fetch(wms.toString());
+        if (!upstream.ok) {
+          const t = await upstream.text();
+          return jsonResponse({ error: `WMS ${upstream.status}: ${t.slice(0, 200)}` }, 502);
+        }
+        const ab = await upstream.arrayBuffer();
+        // Convert to base64 data URL for direct <img> consumption + KV storage
+        const bytes = new Uint8Array(ab);
+        let bin = '';
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        const b64 = btoa(bin);
+        const dataUrl = `data:image/png;base64,${b64}`;
+        // Cache in KV (60-day TTL — imagery for a past pass doesn't change)
+        try {
+          await env.PRICES.put(cacheKey, dataUrl, { expirationTtl: 60 * 86400 });
+        } catch (e) { /* KV write failed; still return the image */ }
+        return jsonResponse({ image: dataUrl, cached: false, date, areaId, width, height });
+      } catch (e) {
+        return jsonResponse({ error: 'NDVI snapshot fetch failed: ' + (e.message || String(e)) }, 502);
+      }
+    }
+
+    // ============================================================
     // CROP DIAGNOSIS — supervisor field tool
     // Takes a photo of a leaf/plant/pest and asks Claude vision for
     // identification + recommended action. Any signed-in user can call it.
