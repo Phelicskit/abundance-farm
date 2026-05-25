@@ -501,6 +501,51 @@ export default {
     }
 
     // ============================================================
+    // NDVI LAYERS — list the WMS layers actually configured in the user's
+    // Sentinel Hub instance. Useful when the default layer name 'NDVI'
+    // doesn't match what's in the user's dashboard ("LayerNotDefined"
+    // error). User picks the right name and sets it via
+    // wrangler secret put SENTINEL_HUB_LAYER_NAME (or Cloudflare dashboard).
+    // GET /api/ndvi-layers
+    // Auth: signed-in user. Returns: { layers: [{ name, title }] }
+    // ============================================================
+    if (url.pathname === '/api/ndvi-layers') {
+      const ctxAuth = await resolveSession(request, env);
+      if (!ctxAuth.user) return jsonResponse({ error: 'unauthorized' }, 401);
+      if (!env.SENTINEL_HUB_INSTANCE_ID) {
+        return jsonResponse({ error: 'NDVI not configured' }, 503);
+      }
+      const wmsHost = env.SENTINEL_HUB_WMS_HOST || 'https://sh.dataspace.copernicus.eu';
+      const wms = new URL(`${wmsHost}/ogc/wms/${env.SENTINEL_HUB_INSTANCE_ID}`);
+      wms.searchParams.set('SERVICE', 'WMS');
+      wms.searchParams.set('REQUEST', 'GetCapabilities');
+      wms.searchParams.set('VERSION', '1.3.0');
+      try {
+        const upstream = await fetch(wms.toString());
+        const xml = await upstream.text();
+        // Crude XML parse — extract <Layer><Name>X</Name><Title>Y</Title>
+        const layers = [];
+        const re = /<Layer[^>]*>\s*<Name>([^<]+)<\/Name>(?:\s*<Title>([^<]*)<\/Title>)?/g;
+        let m;
+        while ((m = re.exec(xml)) !== null) {
+          layers.push({ name: m[1], title: m[2] || '' });
+        }
+        const configuredLayerName = env.SENTINEL_HUB_LAYER_NAME || 'NDVI';
+        const configuredExists = layers.some(l => l.name === configuredLayerName);
+        return jsonResponse({
+          layers,
+          configuredLayerName,
+          configuredExists,
+          hint: configuredExists
+            ? 'OK — the configured SENTINEL_HUB_LAYER_NAME exists.'
+            : `Layer "${configuredLayerName}" NOT FOUND. Pick a name from "layers" above and run: wrangler secret put SENTINEL_HUB_LAYER_NAME`,
+        });
+      } catch (e) {
+        return jsonResponse({ error: 'GetCapabilities failed: ' + (e.message || String(e)) }, 502);
+      }
+    }
+
+    // ============================================================
     // NDVI HISTORY — list available cloud-free Sentinel-2 passes for an
     // area's bounding box between two dates. Used by the NDVI Timeline view
     // to know which dates have imagery to fetch.

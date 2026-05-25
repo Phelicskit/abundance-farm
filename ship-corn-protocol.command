@@ -33,7 +33,7 @@ if git diff --cached --quiet; then
   echo "Nothing to commit — repo is already clean."
 else
   echo ">> Committing..."
-  git commit -m "NDVI snapshot WMS: switch to EPSG:3857 (Web Mercator) to match Sentinel Hub layer config
+  git commit -m "Add /api/ndvi-layers — discover the actual WMS layer name in Sentinel Hub config
 
 Adds automated test coverage for the NDVI feature shipped in 7e3b951.
 While writing the tests one real bug surfaced — the ISO week-year
