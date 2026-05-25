@@ -2383,6 +2383,10 @@ function GoogleParcelMap({ area, updateArea, allAreas, apiKey, mobile }) {
         if (cancelled) return;
         if (window.__gmapsAuthFailed) {
           window.__gmapsHardFail = true;  // remember across remounts
+          // Notify the parent (AreasManager) so it can swap to ParcelMap
+          // on the next render without us having to early-return between
+          // our own hook calls (which would break Rules of Hooks).
+          try { window.dispatchEvent(new Event('gmaps-auth-fail')); } catch (e) {}
           setAuthFailed(true); setError('auth'); return;
         }
         // Belt-and-suspenders: detect Google's own error overlay too. It
@@ -2390,6 +2394,7 @@ function GoogleParcelMap({ area, updateArea, allAreas, apiKey, mobile }) {
         const errEl = mapDivRef.current && mapDivRef.current.querySelector && mapDivRef.current.querySelector('.gm-err-container');
         if (errEl) {
           window.__gmapsHardFail = true;
+          try { window.dispatchEvent(new Event('gmaps-auth-fail')); } catch (e) {}
           setAuthFailed(true); setError('auth'); return;
         }
         if (polls++ < 20) setTimeout(tick, 200);
@@ -2399,34 +2404,14 @@ function GoogleParcelMap({ area, updateArea, allAreas, apiKey, mobile }) {
     return () => { cancelled = true; };
   }, [apiKey, authFailed]);
 
-  // AUTO-FALLBACK: if Google auth failed, render the Leaflet ParcelMap
-  // instead. The user gets a working map (ESRI satellite tiles, no API key
-  // needed) with all the drawing/editing/GPS features. A small dismissable
-  // banner above explains why we switched + how to fix the key if they want
-  // Google back.
-  if (authFailed) {
-    return (
-      <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-        <div style={{ background:"#fff8e1", borderLeft:"4px solid #f9a825", borderRadius:8, padding:"10px 14px", fontSize:12, color:"#5d4037", lineHeight:1.5 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, flexWrap:"wrap" }}>
-            <span><strong>🗝️ Google Maps unavailable</strong> — using free ESRI satellite tiles instead. Drawing, editing, and GPS all still work.</span>
-            <button onClick={() => setShowHelp(!showHelp)} style={{ background:"transparent", border:"1px solid #f9a825", color:"#bf360c", borderRadius:6, padding:"3px 10px", fontSize:11, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>
-              {showHelp ? "Hide" : "How to fix Google Maps"}
-            </button>
-          </div>
-          {showHelp && (
-            <ol style={{ fontSize:11, color:"#5d4037", lineHeight:1.5, paddingLeft:18, margin:"8px 0 0" }}>
-              <li><strong>Maps JavaScript API not enabled</strong> on the GCP project. Console → APIs & Services → Library → "Maps JavaScript API" → Enable.</li>
-              <li><strong>HTTP referrer restriction</strong> excludes <code>abundance.mak-ct.com/*</code>. Console → APIs & Services → Credentials → your key → Application restrictions.</li>
-              <li><strong>Billing not enabled</strong> on the GCP project. Console → Billing.</li>
-              <li><strong>Key was regenerated or deleted</strong>. Rotate via <code>wrangler secret put GOOGLE_MAPS_API_KEY</code>.</li>
-            </ol>
-          )}
-        </div>
-        <ParcelMap area={area} updateArea={updateArea} allAreas={allAreas} mobile={mobile} />
-      </div>
-    );
-  }
+  // AUTO-FALLBACK is now handled at the PARENT level — see the dispatch in
+  // AreasManager that picks ParcelMap vs GoogleParcelMap. Doing it here with
+  // an early-return between hook calls violates React's Rules of Hooks
+  // (the NDVI useEffect + map-build useEffect below this point would be
+  // skipped when authFailed flips true, crashing the whole tree with a
+  // "Rendered fewer hooks than expected" error → white screen on mobile).
+  // The parent reads window.__gmapsHardFail and never even mounts this
+  // component if Google has already failed once.
 
   // Probe NDVI + fetch acquisition date (shared with Leaflet variant)
   useEffect(() => {
@@ -3389,6 +3374,16 @@ function SupervisorsPanel({ supervisors, setSupervisors, areas, harvestLogs, mob
 }
 
 function AreasManager({ areas, setAreas, schedules, breeds, taskMeta, setTaskMeta, customTasks, setCustomTasks, harvestLogs, setHarvestLogs, laborLogs, setLaborLogs, purchases, cashAdvances, setCashAdvances, equipment, fuelLogs, setFuelLogs, auth, supervisors, setSupervisors, sprayLogs, setSprayLogs, diagnoses, setDiagnoses, mapsConfig, fertilizerPrices, setFertilizerPrices }) {
+  // Track Google Maps auth failure so we can swap GoogleParcelMap → ParcelMap
+  // reactively. Initial value reads the global flag in case Google failed
+  // earlier in the session and the user is opening a new area. Listener picks
+  // up future failures from GoogleParcelMap's gm_authFailure detection.
+  const [gmapsFailed, setGmapsFailed] = useState(typeof window !== 'undefined' && (window.__gmapsHardFail || window.__gmapsAuthFailed));
+  useEffect(() => {
+    const onFail = () => setGmapsFailed(true);
+    window.addEventListener('gmaps-auth-fail', onFail);
+    return () => window.removeEventListener('gmaps-auth-fail', onFail);
+  }, []);
   const mobile = useIsMobile();
   const [selectedId, setSelectedId] = useState(areas[0]?.id || null);
   const [subTab, setSubTab] = useState("info");
@@ -3844,12 +3839,33 @@ function AreasManager({ areas, setAreas, schedules, breeds, taskMeta, setTaskMet
             <FieldDiagnose areaName={a.name} areaCrop={a.crop || ((a.breed || '').toLowerCase().includes('corn') ? 'corn' : 'rice')} diagnoses={diagnoses} setDiagnoses={setDiagnoses} mobile={mobile} />
           )}
 
-          {/* Sub-tab: Parcel map */}
-          {subTab === "map" && a.name && (
-            mapsConfig?.googleMapsApiKey
-              ? <GoogleParcelMap area={a} updateArea={updateArea} allAreas={areas} apiKey={mapsConfig.googleMapsApiKey} mobile={mobile} />
-              : <ParcelMap       area={a} updateArea={updateArea} allAreas={areas} mobile={mobile} />
-          )}
+          {/* Sub-tab: Parcel map.
+              Three render paths:
+                1. No Google key configured            → Leaflet ParcelMap
+                2. Google key configured AND working   → GoogleParcelMap
+                3. Google key configured but FAILED    → Leaflet ParcelMap + banner
+              Path 3 is detected via window.__gmapsHardFail (set by
+              GoogleParcelMap's auth-failure detection). Keeping this decision
+              at the parent level avoids the "Rendered fewer hooks than
+              expected" crash that happens if GoogleParcelMap tries to early-
+              return between its own hook calls. */}
+          {subTab === "map" && a.name && (() => {
+            const hasKey = !!mapsConfig?.googleMapsApiKey;
+            const googleFailed = gmapsFailed;  // reactive state, updates via gmaps-auth-fail event
+            if (!hasKey || googleFailed) {
+              return (
+                <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                  {hasKey && googleFailed && (
+                    <div style={{ background:"#fff8e1", borderLeft:"4px solid #f9a825", borderRadius:8, padding:"10px 14px", fontSize:12, color:"#5d4037", lineHeight:1.5 }}>
+                      <strong>🗝️ Google Maps unavailable</strong> — using free ESRI satellite tiles instead. Drawing, editing, and GPS all still work.
+                    </div>
+                  )}
+                  <ParcelMap area={a} updateArea={updateArea} allAreas={areas} mobile={mobile} />
+                </div>
+              );
+            }
+            return <GoogleParcelMap area={a} updateArea={updateArea} allAreas={areas} apiKey={mapsConfig.googleMapsApiKey} mobile={mobile} />;
+          })()}
         </div>
       ) : (
         <div style={{ background:"white", borderRadius:14, padding:40, textAlign:"center", color:"#bbb", fontSize:14 }}>

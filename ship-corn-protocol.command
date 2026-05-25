@@ -33,27 +33,34 @@ if git diff --cached --quiet; then
   echo "Nothing to commit — repo is already clean."
 else
   echo ">> Committing..."
-  git commit -m "Map: auto-fallback to Leaflet when Google Maps key fails
+  git commit -m "URGENT: Fix white-screen crash from Rules of Hooks violation
 
-User report (screenshot from mobile): the Map sub-tab shows
-'🗝️ Google Maps key needs attention' and renders no map at all when
-Google rejects the API key — for example when the HTTP referrer
-restriction excludes abundance.mak-ct.com, billing was disabled, or the
-Maps JavaScript API was never enabled. The Leaflet variant works fine
-without an API key (ESRI satellite tiles) but the app was stuck on the
-Google variant, leaving the user with a broken map.
+USER REPORT: 'It crashes and turns the entire screen white.'
 
-Fix: in GoogleParcelMap, when auth-failure is detected (either via the
-global gm_authFailure callback or by spotting Google's own .gm-err-container
-error overlay), set window.__gmapsHardFail so we remember across re-mounts,
-flip an authFailed state, and from then on render the Leaflet ParcelMap
-component instead. The user gets a working satellite map with drawing,
-editing, and GPS — and a small yellow banner above explains why we
-switched plus a 'How to fix Google Maps' fold-out for when they want to
-restore the Google key. Subsequent area switches skip the Google load
-attempt entirely (no more 'Loading Google Maps…' flash).
+The previous Google-Maps-fallback commit (c3445b1) put an early-return
+inside GoogleParcelMap that branched on authFailed state — placed BETWEEN
+the component's useState declarations (above) and several useEffect calls
+(below it). When auth-failure flipped from false to true on mobile,
+GoogleParcelMap re-rendered with authFailed=true, took the early-return
+path, and called fewer hooks than the previous render. React's Rules of
+Hooks enforcement crashed the entire component tree → blank white screen.
 
-Two earlier issues also bundled in this commit (from end-to-end simulation):
+This commit moves the fallback decision to the PARENT (AreasManager):
+- GoogleParcelMap reverts to its original always-render shape; its only
+  new behavior is dispatching a 'gmaps-auth-fail' window event when it
+  detects auth failure (in addition to setting window.__gmapsHardFail).
+- AreasManager now owns the swap decision via a gmapsFailed useState +
+  window-event listener that flips when GoogleParcelMap fires the event.
+  When gmapsFailed is true, AreasManager mounts ParcelMap (Leaflet ESRI)
+  with a small yellow banner above instead of GoogleParcelMap.
+- No hooks are called conditionally in either component — render-order
+  is now stable in both render paths.
+
+Same user-visible behavior as the original intent: 'Google Maps unavailable
+— using free ESRI satellite tiles instead' banner + working map. But no
+more white-screen crash.
+
+Earlier bundled changes still included:
 
 1. Plot C (Ka Danny protocol) showed 0/0 fertilizer totals on the Dashboard
    per-area card. The card had only two branches — corn vs. rice-default —
