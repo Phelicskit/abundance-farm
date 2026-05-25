@@ -8227,6 +8227,406 @@ const DEFAULT_INVENTORY_ITEMS = [
 ];
 
 // ============================================================
+// DEMO DATA GENERATOR (5-10 years of simulated farm operations)
+// ============================================================
+// Generates a realistic 6-year history (2020-2025) across all 18 synced-state
+// keys. EVERY generated record carries _demo:true (objects) or has an id in
+// 800000-899999 (arrays) so we can wipe the demo cleanly without touching
+// the user's real data. Merge-only — never replaces.
+//
+// Scale: 5 areas, 60 harvests, ~240 purchases, ~150 labor logs, etc.
+// Targets every advisor rule and every tab so QA can see all behaviors.
+// ============================================================
+function generateDemoData(opts) {
+  const today = new Date(opts && opts.today ? opts.today : Date.now());
+  const yearsBack = (opts && opts.yearsBack) || 6;
+  const D = (offsetDays) => {
+    const d = new Date(today); d.setDate(d.getDate() + offsetDays);
+    return d.toISOString().slice(0, 10);
+  };
+  const Diso = (offsetDays) => {
+    const d = new Date(today); d.setDate(d.getDate() + offsetDays);
+    return d.toISOString();
+  };
+  // Stable pseudo-random so reruns produce the same dataset
+  let seed = 42;
+  const rand = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  const pick = (arr) => arr[Math.floor(rand() * arr.length)];
+  const jitter = (base, pct) => base * (1 + (rand() - 0.5) * 2 * pct);
+
+  // ---- areas ----------------------------------------------------------------
+  // Five plots around Santa Maria, Isabela (16.8167, 121.7167) — Kit's actual
+  // farm location. Polygons are simple ~hectare-scale rectangles offset by
+  // a small lat/lon delta so they don't overlap.
+  const FARM = { lat: 16.8167, lon: 121.7167 };
+  const polyAt = (dLat, dLon, sizeM) => {
+    // sizeM in meters → ~degrees (1 deg lat ≈ 111000m, 1 deg lon at 17°N ≈ 107000m)
+    const dy = sizeM / 111000;
+    const dx = sizeM / 107000;
+    const cy = FARM.lat + dLat, cx = FARM.lon + dLon;
+    return [
+      [cy + dy, cx - dx], [cy + dy, cx + dx],
+      [cy - dy, cx + dx], [cy - dy, cx - dx],
+    ];
+  };
+  const areas = [
+    { id: 800001, _demo: true, name: '[DEMO] Plot A · Riverside', ha: 8, managedBy: '[DEMO] Mang Tirso', commissionPct: 10, crop: 'rice', breed: 'NSIC Rc 222', maturity: 114, season: 'Wet 2025', transplantDate: D(-60), status: 'Active',  notes: 'Demo area — irrigated rice', protocol: 'default', plantingMethod: 'transplanting', polygon: polyAt( 0.0020, -0.0030, 140) },
+    { id: 800002, _demo: true, name: '[DEMO] Plot B · Main',      ha:12, managedBy: '[DEMO] Aling Carmen', commissionPct: 10, crop: 'rice', breed: 'NSIC Rc 216', maturity: 114, season: 'Wet 2025', transplantDate: D(-72), status: 'Active',  notes: 'Demo area — largest rice plot', protocol: 'default', plantingMethod: 'transplanting', polygon: polyAt( 0.0020,  0.0010, 175) },
+    { id: 800003, _demo: true, name: '[DEMO] Plot C · West',      ha: 6, managedBy: '[DEMO] Mang Tirso', commissionPct: 10, crop: 'rice', breed: 'NSIC Rc 160', maturity: 112, season: 'Wet 2025', transplantDate: D(-90), status: 'Active',  notes: 'Demo area — Ka Danny protocol', protocol: 'kadanny', plantingMethod: 'transplanting', polygon: polyAt(-0.0010, -0.0040, 120) },
+    { id: 800004, _demo: true, name: '[DEMO] Plot D · Backfield', ha: 5, managedBy: '[DEMO] Boyet',     commissionPct: 12, crop: 'rice', breed: 'NSIC Rc 222', maturity: 114, season: 'Dry 2026', transplantDate: D(  15), status: 'Planning', notes: 'Demo area — planned dry-season', protocol: 'rice-alt-fert', plantingMethod: 'wet-direct', polygon: polyAt(-0.0030, 0.0020, 110) },
+    { id: 800005, _demo: true, name: '[DEMO] Plot E · Cornfield', ha: 4, managedBy: '[DEMO] Lito',      commissionPct: 10, crop: 'corn', breed: 'DK 9132',     maturity: 110, season: 'Wet 2025', transplantDate: D(-45), status: 'Active', notes: 'Demo area — yellow hybrid corn', protocol: 'corn-standard',  plantingMethod: 'transplanting', polygon: polyAt(-0.0010, 0.0030, 105) },
+  ];
+
+  // ---- supervisors ----------------------------------------------------------
+  const supervisors = [
+    { id: 800101, _demo: true, name: '[DEMO] Mang Tirso',    commissionPct: 10, notes: 'Long-time supervisor — Plots A, C', phone: '0917-555-0101' },
+    { id: 800102, _demo: true, name: '[DEMO] Aling Carmen',  commissionPct: 10, notes: 'Plot B specialist',                  phone: '0917-555-0102' },
+    { id: 800103, _demo: true, name: '[DEMO] Boyet',         commissionPct: 12, notes: 'Newer supervisor, dry-season Plot D',phone: '0917-555-0103' },
+    { id: 800104, _demo: true, name: '[DEMO] Lito',          commissionPct: 10, notes: 'Corn specialist — Plot E',           phone: '0917-555-0104' },
+    { id: 800105, _demo: true, name: '[DEMO] Andoy',         commissionPct: 10, notes: 'Substitute / floats between plots',  phone: '0917-555-0105' },
+  ];
+
+  // ---- harvest history (~60 entries: 5 areas × 2 cycles/yr × 6 yrs, less for corn) ----
+  const harvestLogs = [];
+  const buyersByYear = (yr) => ({ palay: 18 + (yr - 2020) * 0.8, corn: 15 + (yr - 2020) * 0.5 });
+  let hId = 800200;
+  for (let yr = today.getFullYear() - yearsBack; yr <= today.getFullYear() - 1; yr++) {
+    areas.forEach((a, idx) => {
+      const isCorn = a.crop === 'corn';
+      const cyclesPerYear = isCorn ? 1 : 2; // corn 1, rice 2 (wet + dry)
+      for (let c = 0; c < cyclesPerYear; c++) {
+        const month = isCorn ? 8 : (c === 0 ? 4 : 10);
+        const day   = 5 + Math.floor(rand() * 20);
+        const date = `${yr}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+        const yieldTha = isCorn ? jitter(6.2, 0.15) : jitter(4.8, 0.18);
+        const totalKg = Math.round(yieldTha * 1000 * a.ha);
+        const bags = Math.round(totalKg / 50);
+        const moisture = isCorn ? jitter(14.5, 0.05) : jitter(15.0, 0.08);
+        const priceTbl = buyersByYear(yr);
+        const buyerPrice = isCorn ? +(jitter(priceTbl.corn, 0.10)).toFixed(2) : +(jitter(priceTbl.palay, 0.10)).toFixed(2);
+        harvestLogs.push({
+          id: hId++, _demo: true,
+          area: a.name, season: c === 0 && !isCorn ? `Dry ${yr}` : `Wet ${yr}`,
+          breed: a.breed, date,
+          bags, weightPerBag: 50, totalKg,
+          moisture: +moisture.toFixed(1),
+          buyerPrice, grade: pick(['Premium','Good','Good','Fair']),
+          notes: c === 0 ? 'Dry-season harvest' : 'Wet-season harvest',
+          yieldPerHa: Math.round(yieldTha * 1000),
+        });
+      }
+    });
+  }
+
+  // ---- purchases (~240: 4 per cycle) ----------------------------------------
+  const purchases = [];
+  let pId = 800400;
+  const suppliers = ['[DEMO] Cagayan Agri Supply','[DEMO] Isabela Fertilizer Trading','[DEMO] La Suerte Hardware','[DEMO] Tuguegarao Agro'];
+  const fertItems = [
+    { item:'14-14-14', basePrice: 1750 },
+    { item:'46-0-0',   basePrice: 1500 },
+    { item:'0-0-60',   basePrice: 1850 },
+    { item:'21-0-0',   basePrice: 1100 },
+    { item:'FAA',      basePrice: 350,  unit:'L' },
+  ];
+  for (let yr = today.getFullYear() - yearsBack; yr <= today.getFullYear(); yr++) {
+    for (let m = 0; m < 12; m++) {
+      // 2-4 purchases per month
+      const count = 2 + Math.floor(rand() * 3);
+      for (let i = 0; i < count; i++) {
+        const day = 1 + Math.floor(rand() * 27);
+        const date = `${yr}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+        if (new Date(date) > today) continue; // don't generate future purchases
+        const f = pick(fertItems);
+        // Prices drift upward 4%/year + monthly noise
+        const inflated = f.basePrice * Math.pow(1.04, yr - 2020);
+        const unitCost = +jitter(inflated, 0.08).toFixed(2);
+        const qty = 1 + Math.floor(rand() * 8);
+        purchases.push({
+          id: pId++, _demo: true,
+          receiptId: `DEMO-R${yr}${m}${i}`,
+          date,
+          supplier: pick(suppliers),
+          receipt: `OR-${yr}-${1000 + pId}`,
+          item: f.item, brand: pick(['Atlas','Yara','Sinochem','Generic']),
+          qty, unit: f.unit || 'bags', unitCost,
+        });
+      }
+    }
+  }
+
+  // ---- labor logs (~150) ----------------------------------------------------
+  const laborLogs = [];
+  let lId = 800600;
+  for (let yr = today.getFullYear() - yearsBack; yr <= today.getFullYear(); yr++) {
+    for (let m = 0; m < 12; m += 2) {
+      // 2 labor log entries every other month, randomly assigned across areas
+      const a = pick(areas);
+      const workers = 3 + Math.floor(rand() * 10);
+      const days = 1 + Math.floor(rand() * 3);
+      const wage = 500 + Math.floor(rand() * 100);
+      const date = `${yr}-${String(m+1).padStart(2,'0')}-${String(5 + Math.floor(rand() * 20)).padStart(2,'0')}`;
+      if (new Date(date) > today) continue;
+      laborLogs.push({
+        id: lId++, _demo: true,
+        date, area: a.name,
+        task: pick(['Transplanting','Weeding','Spraying','Fertilizing','Harvest','Land prep','Hauling']),
+        workers, days, dailyWage: wage,
+        totalCost: workers * days * wage,
+        notes: 'Demo labor log',
+      });
+    }
+  }
+
+  // ---- cash advances (~20) --------------------------------------------------
+  const cashAdvances = [];
+  let caId = 800800;
+  for (let yr = today.getFullYear() - 3; yr <= today.getFullYear(); yr++) {
+    for (let i = 0; i < 6; i++) {
+      const m = Math.floor(rand() * 12);
+      const date = `${yr}-${String(m+1).padStart(2,'0')}-${String(5 + Math.floor(rand()*20)).padStart(2,'0')}`;
+      if (new Date(date) > today) continue;
+      cashAdvances.push({
+        id: caId++, _demo: true, date,
+        supervisor: pick(['[DEMO] Mang Tirso','[DEMO] Aling Carmen','[DEMO] Boyet','[DEMO] Lito']),
+        amount: 500 + Math.floor(rand() * 4500),
+        reason: pick(['Vale para diesel','Vale para fertilizer','Vale family emergency','Vale gasoline pump','Vale food allowance']),
+        repaid: rand() > 0.4,
+      });
+    }
+  }
+
+  // ---- equipment + fuel + maintenance --------------------------------------
+  const equipment = [
+    { id: 800901, _demo: true, name: '[DEMO] Kubota M-7060 tractor', type: 'tractor', acquiredDate: D(-2200), notes: 'Demo equipment' },
+    { id: 800902, _demo: true, name: '[DEMO] Honda WB30 water pump', type: 'pump',    acquiredDate: D(-1500), notes: 'Demo equipment' },
+    { id: 800903, _demo: true, name: '[DEMO] Iseki HF608 thresher',  type: 'thresher', acquiredDate: D(-900),  notes: 'Demo equipment' },
+  ];
+  const fuelLogs = [];
+  let fId = 801000;
+  for (let yr = today.getFullYear() - 3; yr <= today.getFullYear(); yr++) {
+    for (let m = 0; m < 12; m++) {
+      const date = `${yr}-${String(m+1).padStart(2,'0')}-${String(10).padStart(2,'0')}`;
+      if (new Date(date) > today) continue;
+      // ~2 fillups per month
+      for (let f = 0; f < 2; f++) {
+        const eq = pick(equipment);
+        fuelLogs.push({
+          id: fId++, _demo: true, date,
+          equipment: eq.name,
+          liters: +(10 + rand() * 40).toFixed(1),
+          pricePerL: +(55 + rand() * 15).toFixed(2),
+          totalCost: 0, // computed below
+          notes: '',
+        });
+        const last = fuelLogs[fuelLogs.length - 1];
+        last.totalCost = +(last.liters * last.pricePerL).toFixed(2);
+      }
+    }
+  }
+  const maintenanceLogs = [];
+  let mId = 801200;
+  for (let yr = today.getFullYear() - 3; yr <= today.getFullYear(); yr++) {
+    for (let q = 0; q < 4; q++) {
+      const m = q * 3 + 1;
+      const date = `${yr}-${String(m).padStart(2,'0')}-15`;
+      if (new Date(date) > today) continue;
+      const eq = pick(equipment);
+      maintenanceLogs.push({
+        id: mId++, _demo: true, date,
+        equipment: eq.name,
+        type: pick(['Oil change','Filter replacement','Brake service','Hydraulic check','General service']),
+        cost: 800 + Math.floor(rand() * 4200),
+        notes: 'Demo maintenance log',
+      });
+    }
+  }
+
+  // ---- electricity bills (monthly × 3 years) -------------------------------
+  const electricityBills = [];
+  let ebId = 801400;
+  for (let yr = today.getFullYear() - 3; yr <= today.getFullYear(); yr++) {
+    for (let m = 0; m < 12; m++) {
+      const date = `${yr}-${String(m+1).padStart(2,'0')}-25`;
+      if (new Date(date) > today) continue;
+      electricityBills.push({
+        id: ebId++, _demo: true, date,
+        kwh: 80 + Math.floor(rand() * 200),
+        cost: 800 + Math.floor(rand() * 1500),
+        notes: 'Demo electricity bill',
+      });
+    }
+  }
+
+  // ---- spray logs (~30) -----------------------------------------------------
+  const sprayLogs = [];
+  let spId = 801600;
+  for (let yr = today.getFullYear() - 2; yr <= today.getFullYear(); yr++) {
+    for (let i = 0; i < 10; i++) {
+      const m = Math.floor(rand() * 12), day = 1 + Math.floor(rand() * 27);
+      const date = `${yr}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      if (new Date(date) > today) continue;
+      const a = pick(areas);
+      sprayLogs.push({
+        id: spId++, _demo: true, date, area: a.name,
+        chemical: pick(['Carbendazim','Difenoconazole','Cypermethrin','Triazophos','Mancozeb']),
+        rate: pick(['200ml/16L','15g/16L','250ml/16L']),
+        target: pick(['stem borer','rice blast','sheath blight','planthopper','fall armyworm']),
+        notes: 'Demo spray log',
+      });
+    }
+  }
+
+  // ---- diagnoses (12 — without real images, placeholder dataURL) -----------
+  const placeholderImg = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+  const diagnoses = [];
+  let dId = 801800;
+  const diagSamples = [
+    { diagnosis: 'Stem borer damage', confidence: 'medium', urgency: 'ROUTINE', action: 'Spray triazophos 250ml/16L at affected hills.' },
+    { diagnosis: 'Bacterial leaf blight', confidence: 'high', urgency: 'URGENT', action: 'Drain field, apply copper hydroxide. Stop nitrogen until controlled.' },
+    { diagnosis: 'Nitrogen deficiency', confidence: 'high', urgency: 'ROUTINE', action: 'Top-dress 1 bag 46-0-0 per ha.' },
+    { diagnosis: 'Normal tillering', confidence: 'high', urgency: 'ROUTINE', action: 'No action needed. Continue scheduled fertilization.' },
+    { diagnosis: 'Fall armyworm (corn)', confidence: 'high', urgency: 'URGENT', action: 'Spray spinosad 100ml/16L at whorl.' },
+  ];
+  for (let i = 0; i < 12; i++) {
+    const a = pick(areas);
+    const r = diagSamples[i % diagSamples.length];
+    const daysAgo = 5 + Math.floor(rand() * 600);
+    diagnoses.push({
+      id: dId++, _demo: true, area: a.name,
+      at: Diso(-daysAgo), by: 'demo@abundance', image: placeholderImg, notes: 'Demo diagnosis entry',
+      result: { observation: 'Visible symptoms on lower leaves.', ...r, notes: '' },
+      gps: { lat: FARM.lat + (rand()-0.5) * 0.005, lon: FARM.lon + (rand()-0.5) * 0.005, accuracy: 8 + Math.floor(rand() * 20), at: Diso(-daysAgo) },
+    });
+  }
+
+  // ---- fertilizer prices (current snapshot) + 6-mo history per item --------
+  const fertilizerPrices = {};
+  const fertilizerPriceHistory = {};
+  ['14-14-14','46-0-0','0-0-60','21-0-0','16-20-0','FAA'].forEach(item => {
+    const base = { '14-14-14': 1800, '46-0-0': 1550, '0-0-60': 1900, '21-0-0': 1150, '16-20-0': 1450, 'FAA': 380 }[item];
+    fertilizerPrices[item] = {
+      _demo: true,
+      pricePerBag: Math.round(base),
+      pricePerKg: +(base / 50).toFixed(2),
+      dateUpdated: D(0),
+      source: '[DEMO] manual',
+    };
+    fertilizerPriceHistory[item] = [];
+    for (let w = 0; w < 12; w++) {
+      const ppb = Math.round(base * (1 + (Math.sin(w * 0.7) * 0.04) + (rand() - 0.5) * 0.03 - w * 0.005));
+      fertilizerPriceHistory[item].push({
+        _demo: true,
+        date: D(-w * 14),
+        pricePerBag: ppb,
+      });
+    }
+  });
+
+  // ---- price log (24 monthly entries) --------------------------------------
+  const priceLog = [];
+  let plId = 802000;
+  for (let yr = today.getFullYear() - 2; yr <= today.getFullYear(); yr++) {
+    for (let m = 0; m < 12; m++) {
+      const date = Diso(- (today.getFullYear() - yr) * 365 - (12 - m) * 30);
+      if (new Date(date) > today) continue;
+      const palayBase = 18 + (yr - 2020) * 0.8;
+      const cornBase  = 15 + (yr - 2020) * 0.5;
+      priceLog.push({
+        id: plId++, _demo: true, date,
+        palayFresh: +jitter(palayBase - 2, 0.10).toFixed(2),
+        palayDry:   +jitter(palayBase,     0.10).toFixed(2),
+        cornFresh:  +jitter(cornBase - 1.5, 0.10).toFixed(2),
+        cornDry:    +jitter(cornBase,      0.10).toFixed(2),
+        source: '[DEMO] supplier quote',
+        note: '',
+      });
+    }
+  }
+
+  // ---- recurring obligations (4) -------------------------------------------
+  const recurringObligations = [
+    { id: 802100, _demo: true, name: '[DEMO] Rural bank loan payment', amount: 12000, frequency: 'monthly', nextDate: D(15), notes: 'Demo recurring' },
+    { id: 802101, _demo: true, name: '[DEMO] Crop insurance premium', amount: 8000,  frequency: 'quarterly', nextDate: D(45), notes: 'Demo recurring' },
+    { id: 802102, _demo: true, name: '[DEMO] Tractor fuel reserve',   amount: 5000,  frequency: 'monthly', nextDate: D(7),  notes: 'Demo recurring' },
+    { id: 802103, _demo: true, name: '[DEMO] Property tax',            amount: 15000, frequency: 'yearly', nextDate: D(180), notes: 'Demo recurring' },
+  ];
+
+  // ---- custom tasks (per area) ---------------------------------------------
+  const customTasks = {};
+  areas.forEach(a => {
+    customTasks[a.name] = [
+      { id: 802200 + a.id, _demo: true, activity: '[DEMO] Walk perimeter check', phase: 'Crop Care', planStart: D(5), planEnd: D(5), inputs: [] },
+      { id: 802300 + a.id, _demo: true, activity: '[DEMO] Bird scaring setup',   phase: 'Crop Care', planStart: D(20), planEnd: D(20), inputs: [] },
+    ];
+  });
+
+  // ---- task meta (some completed statuses for demo tasks) ------------------
+  const taskMeta = {};
+  areas.forEach(a => {
+    // Mark first 3 protocol tasks as completed on each active area
+    [1, 4, 10].forEach(taskId => {
+      taskMeta[`${a.name}-${taskId}`] = {
+        _demo: true,
+        status: 'Completed',
+        actStart: D(-Math.floor(rand() * 60)),
+        actEnd:   D(-Math.floor(rand() * 60)),
+        notes: 'Demo completed',
+      };
+    });
+  });
+
+  // ---- tool inventory (8 items) --------------------------------------------
+  const toolInventory = [
+    { id: 802400, _demo: true, item: '[DEMO] Sprayer (knapsack 16L)', qty: 4, location: 'Plot A shed', notes: '' },
+    { id: 802401, _demo: true, item: '[DEMO] Sickles', qty: 25, location: 'main bodega', notes: '' },
+    { id: 802402, _demo: true, item: '[DEMO] Shovel', qty: 8, location: 'main bodega', notes: '' },
+    { id: 802403, _demo: true, item: '[DEMO] Bolo / itak', qty: 15, location: 'main bodega', notes: '' },
+    { id: 802404, _demo: true, item: '[DEMO] PVC water tube (AWD)', qty: 12, location: 'Plot A', notes: 'For AWD monitoring' },
+    { id: 802405, _demo: true, item: '[DEMO] Tarpaulin (drying)', qty: 6, location: 'main bodega', notes: '' },
+    { id: 802406, _demo: true, item: '[DEMO] Rake', qty: 10, location: 'main bodega', notes: '' },
+    { id: 802407, _demo: true, item: '[DEMO] Bucket', qty: 20, location: 'main bodega', notes: '' },
+  ];
+
+  // ---- usages (~12) --------------------------------------------------------
+  const usages = [];
+  let uId = 802500;
+  for (let i = 0; i < 12; i++) {
+    const a = pick(areas);
+    const f = pick(fertItems);
+    const daysAgo = Math.floor(rand() * 500);
+    usages.push({
+      id: uId++, _demo: true,
+      date: D(-daysAgo),
+      item: f.item, qty: 50 + Math.floor(rand() * 200), unit: 'kg',
+      area: a.name, task: 'Top-dress', notes: 'Demo usage entry',
+    });
+  }
+
+  return {
+    areas, supervisors, harvestLogs, purchases, laborLogs, cashAdvances,
+    equipment, fuelLogs, maintenanceLogs, electricityBills, sprayLogs, diagnoses,
+    fertilizerPrices, fertilizerPriceHistory, priceLog, recurringObligations,
+    customTasks, taskMeta, toolInventory, usages,
+  };
+}
+
+// Count current demo records across all known keys
+function countDemoRecords(state) {
+  let count = 0;
+  Object.values(state || {}).forEach(v => {
+    if (Array.isArray(v)) count += v.filter(x => x && x._demo).length;
+    else if (v && typeof v === 'object') {
+      Object.values(v).forEach(item => {
+        if (Array.isArray(item)) count += item.filter(x => x && x._demo).length;
+        else if (item && typeof item === 'object' && item._demo) count += 1;
+      });
+    }
+  });
+  return count;
+}
+
+// ============================================================
 // FERTILIZER PRICES PANEL
 // ============================================================
 // Manual snapshot of current fertilizer market prices, keyed by product.
@@ -8594,7 +8994,153 @@ function UpcomingFertilizerNeeds({ areas, allTasks, stockMap, fertilizerPrices, 
   );
 }
 
-function InventoryTracker({ purchases, setPurchases, usages, setUsages, areas, allTasks, inventoryItems, setInventoryItems, fertilizerPrices, setFertilizerPrices, fertilizerPriceHistory, setFertilizerPriceHistory }) {
+// ============================================================
+// DEMO DATA PANEL — collapsed at the bottom of the Inventory tab
+// ============================================================
+// Lets the user load ~6 years of simulated farm operations to stress-test
+// every part of the app (Dashboard advisors, Cashflow, Accounting, Tasks,
+// NPK Tracker, etc.) without entering anything by hand. All demo records
+// carry _demo:true so the "Delete" button can wipe them cleanly without
+// touching real data.
+function DemoDataPanel({ bag, mobile }) {
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  // Count demo records across current state. Re-renders whenever the
+  // underlying state changes.
+  const demoCount = useMemo(() => {
+    const state = {};
+    Object.entries(bag || {}).forEach(([k, v]) => {
+      if (typeof v !== 'function') state[k] = v;
+    });
+    return countDemoRecords(state);
+  }, [bag]);
+
+  // Mapping from `generateDemoData()` keys → setter names in `bag`.
+  const keyToSetter = {
+    areas: 'setAreas', supervisors: 'setSupervisors', harvestLogs: 'setHarvestLogs',
+    purchases: 'setPurchases', laborLogs: 'setLaborLogs', cashAdvances: 'setCashAdvances',
+    equipment: 'setEquipment', fuelLogs: 'setFuelLogs', maintenanceLogs: 'setMaintenanceLogs',
+    electricityBills: 'setElectricityBills', sprayLogs: 'setSprayLogs', diagnoses: 'setDiagnoses',
+    fertilizerPrices: 'setFertilizerPrices', fertilizerPriceHistory: 'setFertilizerPriceHistory',
+    recurringObligations: 'setRecurringObligations',
+    customTasks: 'setCustomTasks', taskMeta: 'setTaskMeta',
+    toolInventory: 'setToolInventory', usages: 'setUsages',
+  };
+
+  const loadDemo = async () => {
+    if (!confirm('Load ~6 years of demo data?\n\nThis will ADD demo records alongside your existing real data. Every demo record is tagged with _demo:true so you can delete them later without touching real entries.\n\nProceed?')) return;
+    setBusy(true);
+    const data = generateDemoData({ today: new Date(), yearsBack: 6 });
+    let added = 0;
+    Object.entries(data).forEach(([key, value]) => {
+      const setterName = keyToSetter[key];
+      if (!setterName || !bag[setterName]) return;
+      const setter = bag[setterName];
+      if (Array.isArray(value)) {
+        setter(prev => {
+          const existingIds = new Set((prev || []).map(x => x && x.id));
+          const newOnes = value.filter(v => v && !existingIds.has(v.id));
+          added += newOnes.length;
+          return [...(prev || []), ...newOnes];
+        });
+      } else if (value && typeof value === 'object') {
+        // Object/dict shape (fertilizerPrices, fertilizerPriceHistory, customTasks, taskMeta)
+        setter(prev => {
+          const next = { ...(prev || {}) };
+          Object.entries(value).forEach(([k, v]) => {
+            // For customTasks / fertilizerPriceHistory: merge arrays
+            if (Array.isArray(v)) {
+              const existing = next[k] || [];
+              const existingIds = new Set(existing.map(x => x && x.id));
+              const newOnes = v.filter(x => x && !existingIds.has(x.id));
+              added += newOnes.length;
+              next[k] = [...existing, ...newOnes];
+            } else {
+              // For fertilizerPrices: only add if no real entry exists
+              if (next[k] && !next[k]._demo) return; // preserve real data
+              next[k] = v;
+              if (v && v._demo) added += 1;
+            }
+          });
+          return next;
+        });
+      }
+    });
+    setTimeout(() => {
+      setBusy(false);
+      alert(`✓ Demo data loaded — ${added} records added across ${Object.keys(data).length} categories.\n\nOpen Dashboard, Areas, Cashflow, Accounting, etc. to see all functions populated.\n\nTo remove later, use the Delete button on this panel.`);
+    }, 200);
+  };
+
+  const deleteDemo = async () => {
+    if (!confirm(`Delete ALL demo data (${demoCount} records)?\n\nThis only removes records tagged with _demo:true — your real data is untouched.\n\nProceed?`)) return;
+    setBusy(true);
+    Object.values(keyToSetter).forEach(setterName => {
+      const setter = bag[setterName];
+      if (!setter) return;
+      setter(prev => {
+        if (Array.isArray(prev)) return prev.filter(x => !(x && x._demo));
+        if (prev && typeof prev === 'object') {
+          const next = {};
+          Object.entries(prev).forEach(([k, v]) => {
+            if (Array.isArray(v)) {
+              const filtered = v.filter(x => !(x && x._demo));
+              if (filtered.length > 0) next[k] = filtered;
+              // else drop empty key
+            } else if (v && typeof v === 'object' && v._demo) {
+              // drop this dict entry
+            } else {
+              next[k] = v;
+            }
+          });
+          return next;
+        }
+        return prev;
+      });
+    });
+    setTimeout(() => {
+      setBusy(false);
+      alert(`✓ Demo data deleted. Your real data is untouched.`);
+    }, 200);
+  };
+
+  return (
+    <div style={{ marginTop:16, background:"#f5f5f5", borderRadius:12, padding: mobile ? "10px 12px" : "12px 16px", border:"1px dashed #bdbdbd" }}>
+      <div onClick={() => setOpen(!open)} style={{ cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <span style={{ fontWeight:700, fontSize:13, color:"#555" }}>
+          {open ? "▾" : "▸"} 🧪 Demo / Sample Data
+          {demoCount > 0 && (
+            <span style={{ marginLeft:8, background:"#fff8e1", color:"#bf360c", padding:"2px 8px", borderRadius:10, fontSize:11, fontWeight:700 }}>
+              {demoCount.toLocaleString()} demo records loaded
+            </span>
+          )}
+        </span>
+        <span style={{ fontSize:10, color:"#999" }}>For stress-testing — safe to leave or remove</span>
+      </div>
+      {open && (
+        <div style={{ marginTop:10, fontSize:12, color:"#555", lineHeight:1.5 }}>
+          <p style={{ margin:"4px 0 10px" }}>
+            Load <strong>6 years of simulated farm operations</strong> to stress-test every tab without entering data by hand. Generates 5 areas (4 rice + 1 corn), ~60 harvests, ~200 purchases, ~150 labor logs, fertilizer price history, diagnoses, supervisors, equipment + fuel + maintenance, electricity bills, custom tasks, and more.
+          </p>
+          <p style={{ margin:"4px 0 10px" }}>
+            Every demo record is tagged with <code style={{ background:"#fff", padding:"1px 4px", borderRadius:3, fontSize:11 }}>_demo: true</code> and named with a <code style={{ background:"#fff", padding:"1px 4px", borderRadius:3, fontSize:11 }}>[DEMO]</code> prefix. The <strong>Delete</strong> button removes only those, leaving your real data alone.
+          </p>
+          <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginTop:12 }}>
+            <button onClick={loadDemo} disabled={busy} style={{ padding:"10px 18px", borderRadius:8, border:"none", background: busy ? "#bbb" : "#2e7d32", color:"white", fontSize:13, fontWeight:700, cursor: busy ? "wait" : "pointer" }}>
+              {busy ? "⏳ Working…" : "📥 Load 6 years of demo data"}
+            </button>
+            <button onClick={deleteDemo} disabled={busy || demoCount === 0} style={{ padding:"10px 18px", borderRadius:8, border: "1px solid " + (demoCount === 0 ? "#ddd" : "#ffcdd2"), background:"white", color: demoCount === 0 ? "#bbb" : "#c62828", fontSize:13, fontWeight:700, cursor: busy || demoCount === 0 ? "not-allowed" : "pointer" }}>
+              🗑 Delete all demo data {demoCount > 0 && `(${demoCount})`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InventoryTracker({ purchases, setPurchases, usages, setUsages, areas, allTasks, inventoryItems, setInventoryItems, fertilizerPrices, setFertilizerPrices, fertilizerPriceHistory, setFertilizerPriceHistory, demoStateBag }) {
   const mobile = useIsMobile();
   const [showAddPurchase, setShowAddPurchase] = useState(false);
   const [showAddUsage, setShowAddUsage] = useState(false);
@@ -9033,6 +9579,9 @@ function InventoryTracker({ purchases, setPurchases, usages, setUsages, areas, a
           mobile={mobile}
         />
       )}
+
+      {/* DEMO DATA panel — collapsed by default */}
+      <DemoDataPanel bag={demoStateBag} mobile={mobile} />
 
       {/* Photo Viewer Overlay */}
       {viewingPhoto && (
@@ -13320,7 +13869,30 @@ function AppShell({ auth, mobile }) {
           openingCash={openingCash} recurringObligations={recurringObligations} cashflowSettings={cashflowSettings} forecastOverrides={forecastOverrides}
         />}
         {tab === "equipment" && <EquipmentTab equipment={equipment} setEquipment={setEquipment} maintenanceLogs={maintenanceLogs} setMaintenanceLogs={setMaintenanceLogs} fuelLogs={fuelLogs} setFuelLogs={setFuelLogs} toolInventory={toolInventory} setToolInventory={setToolInventory} />}
-        {tab === "inventory" && <InventoryTracker purchases={purchases} setPurchases={setPurchases} usages={usages} setUsages={setUsages} areas={areas} allTasks={allTasks} inventoryItems={inventoryItems} setInventoryItems={setInventoryItems} fertilizerPrices={fertilizerPrices} setFertilizerPrices={setFertilizerPrices} fertilizerPriceHistory={fertilizerPriceHistory} setFertilizerPriceHistory={setFertilizerPriceHistory} />}
+        {tab === "inventory" && <InventoryTracker
+          purchases={purchases} setPurchases={setPurchases}
+          usages={usages} setUsages={setUsages}
+          areas={areas} allTasks={allTasks}
+          inventoryItems={inventoryItems} setInventoryItems={setInventoryItems}
+          fertilizerPrices={fertilizerPrices} setFertilizerPrices={setFertilizerPrices}
+          fertilizerPriceHistory={fertilizerPriceHistory} setFertilizerPriceHistory={setFertilizerPriceHistory}
+          /* Threading every setter through so the Demo Data panel at the bottom
+             of the Inventory tab can populate (and wipe) all synced state. */
+          demoStateBag={{
+            purchases, setPurchases, usages, setUsages,
+            areas, setAreas, supervisors, setSupervisors, harvestLogs, setHarvestLogs,
+            laborLogs, setLaborLogs, cashAdvances, setCashAdvances,
+            equipment, setEquipment, fuelLogs, setFuelLogs,
+            maintenanceLogs, setMaintenanceLogs, electricityBills, setElectricityBills,
+            sprayLogs, setSprayLogs, diagnoses, setDiagnoses,
+            fertilizerPrices, setFertilizerPrices,
+            fertilizerPriceHistory, setFertilizerPriceHistory,
+            /* priceLog is server-backed via /api/log, not synced state — skip it */
+            recurringObligations, setRecurringObligations,
+            customTasks, setCustomTasks, taskMeta, setTaskMeta,
+            toolInventory, setToolInventory,
+          }}
+        />}
         {tab === "breeds" && <BreedManager breeds={breeds} setBreeds={setBreeds} />}
       </main>
     </div>

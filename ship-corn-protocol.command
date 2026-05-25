@@ -33,33 +33,31 @@ if git diff --cached --quiet; then
   echo "Nothing to commit — repo is already clean."
 else
   echo ">> Committing..."
-  git commit -m "Fix map blank-screen + GPS integration (4 features)
+  git commit -m "Demo data generator + UI panel (stress test in seconds)
 
-Map fix:
-- Leaflet's container measurement runs during init; when subTab='map' first
-  renders the parent's final dimensions haven't settled yet, so the map
-  reports 0x0 and shows blank. Now calls invalidateSize() on rAF + at 250ms
-  + at 800ms, plus a window resize/orientationchange listener. Also adds an
-  errorTileUrl (1x1 transparent gif) so failed satellite tiles don't show
-  broken-image boxes; first tile error logged once for debugging.
+Generates 6 years of simulated farm operations (704 records across 20
+categories) so all functions can be exercised end-to-end without manual
+data entry. Every demo record is tagged with _demo:true (objects) or has
+an id in 800000-899999 (arrays); the Delete button filters by that tag
+so real data is never touched.
 
-GPS integration (4 features):
-- 'Drop pin at my location' button — in drawing mode, captures current GPS
-  as a polygon vertex (far more accurate than tapping on satellite at zoom).
-  In idle mode, recenters the map on your position.
-- 'Track me' toggle — uses navigator.geolocation.watchPosition to continuously
-  update a blue 'you are here' circleMarker + accuracy circle (Leaflet
-  circleMarker + circle with radius=accuracy in meters).
-- Auto-center on first open — when an area has no polygon yet, request a
-  one-shot GPS fix and recenter on the user's position instead of the
-  hardcoded Santa Maria coords.
-- GPS-tag field diagnose photos — captures lat/lon/accuracy in parallel with
-  the /api/diagnose call (best-effort, doesn't block). Stored on the diagnosis
-  entry as { gps: { lat, lon, accuracy, at } }. History list shows the
-  coordinates as a clickable link to Google Maps with the ±m accuracy badge.
-
-All GPS handlers gracefully degrade if geolocation is unavailable, permission
-is denied, or the request times out. Watch handles are cleaned up on unmount.
+New code:
+- generateDemoData({today, yearsBack}) — pure function that returns a
+  deterministic dataset (seeded PRNG, seed=42) covering: 5 areas (4 rice +
+  1 corn) with polygons around Santa Maria, 5 supervisors, ~54 harvests
+  over 6 years, ~240 timed purchases with inflation drift, 39 labor logs,
+  22 cash advances, 3 equipment + 82 fuel logs + 14 maintenance logs,
+  41 electricity bills, 25 spray logs, 12 diagnoses with GPS coords,
+  fertilizer prices for 6 products with 12-entry history each, 4 recurring
+  obligations, 10 custom protocol tasks, 15 task-meta completions,
+  8 tool inventory items, 12 usage entries.
+- countDemoRecords(state) — counts _demo-tagged items across all the
+  shapes used (arrays, dicts of arrays, dicts of objects).
+- DemoDataPanel component — collapsed at the bottom of the Inventory tab.
+  Shows current count, 'Load' button (merge-only — never overwrites real
+  data; skips IDs that already exist), 'Delete' button (filters by _demo).
+- Threaded all 18 useSyncedState setters down to InventoryTracker via
+  demoStateBag prop so the panel can populate every key in one click.
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 fi
