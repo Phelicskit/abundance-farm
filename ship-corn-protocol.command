@@ -33,9 +33,53 @@ if git diff --cached --quiet; then
   echo "Nothing to commit — repo is already clean."
 else
   echo ">> Committing..."
-  git commit -m "NDVI Timeline: auto-collated weekly Sentinel-2 snapshots per area
+  git commit -m "Automated NDVI testing + ISO week-year boundary bug fix
 
-NEW: 'NDVI' sub-tab on every area shows a weekly grid of Sentinel-2
+Adds automated test coverage for the NDVI feature shipped in 7e3b951.
+While writing the tests one real bug surfaced — the ISO week-year
+calculation in reduceToWeeklyPasses was using the original date's
+calendar year, which is WRONG for the Dec/Jan boundary: 2024-12-30
+(Monday) belongs to ISO week 2025-W01 because the Thursday of that
+week falls in 2025. The old code generated key '2024-W01' for that
+date, so cross-year passes would never collapse correctly. Fixed by
+deriving the week-year from the Thursday's year (tmp.getUTCFullYear()).
+
+Backend tests (test/smoke.mjs) — 12 new checks covering both NDVI
+endpoints:
+  - auth gate (401 without token)
+  - 503 when SENTINEL_HUB_INSTANCE_ID is unset
+  - input validation: polygon required + >=3 vertices, fromDate/areaId/
+    date required as appropriate
+  - KV cache HIT path (pre-populate KV, verify returned image came from
+    cache without calling Sentinel Hub)
+  - KV cache key includes areaId AND width (different widths = different
+    cache key = miss, proves we won't cross-contaminate cached snapshots
+    of different sizes for the same area+date)
+
+Frontend tests (stress harness) — 18 new checks covering the pure
+helpers extracted from NdviTimeline to module scope so they're
+testable without React:
+  - reduceToWeeklyPasses: same-week dedup, lowest-cloud wins, null cc
+    treated as worst, empty/null inputs handled, invalid date strings
+    ignored, cross-year ISO week boundary (the bug found above)
+  - deriveNdviMilestones: rice schedule yields 5 milestones, corn
+    schedule yields corn-specific labels (no Panicle Init), Ka Danny
+    still produces rice-style milestones, null/empty inputs degrade
+  - daysFromTransplant: positive, zero, negative, null inputs, invalid
+    date strings
+
+Refactor: extracted reduceToWeeklyPasses, deriveNdviMilestones,
+daysFromTransplant from NdviTimeline's useMemo bodies to module-scope
+functions. The component now calls them inside useMemo so memoization
+behavior is unchanged, but the harness can import them directly.
+
+Test totals after this commit:
+  - Backend smoke: 41 tests passing (was 29, +12)
+  - Frontend stress: 63 tests passing (was 45, +18)
+  - FAA units: 8 tests
+  - JSX parses cleanly: 842,924 bytes
+
+NEW (from 7e3b951, restated): 'NDVI' sub-tab on every area shows a weekly grid of Sentinel-2
 vegetation snapshots from transplant date to today, with growth-stage
 milestones highlighted on the closest pass. Click any thumbnail to
 enlarge with full date + days-after-transplant + cloud cover context.

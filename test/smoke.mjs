@@ -156,6 +156,116 @@ check('owner can PUT replace', r.status === 200);
 r = await call('GET', '/api/ops', { headers: { Authorization: 'Bearer ' + ownerToken } });
 check('PUT replaces wholesale (other keys gone)', r.json.ops['rfops-equipment'] === undefined && r.json.ops['rfops-areas'][0].id === 99);
 
+// ============================================================
+// NDVI ENDPOINTS — /api/ndvi-history + /api/ndvi-snapshot
+// ============================================================
+// Real Sentinel Hub calls aren't exercised here (would need network +
+// SENTINEL_HUB_INSTANCE_ID). We verify auth gating, input validation,
+// 503 when Sentinel Hub isn't configured, and KV cache-hit behavior
+// (which doesn't need to call Sentinel Hub at all).
+
+const validPolygon = [[16.81, 121.71], [16.81, 121.72], [16.82, 121.72], [16.82, 121.71]];
+
+// /api/ndvi-history — auth gate
+r = await call('POST', '/api/ndvi-history', {
+  body: { polygon: validPolygon, fromDate: '2025-01-01', toDate: '2025-12-31' },
+});
+check('ndvi-history requires auth', r.status === 401);
+
+// /api/ndvi-history — 503 when SENTINEL_HUB_INSTANCE_ID not set
+r = await call('POST', '/api/ndvi-history', {
+  body: { polygon: validPolygon, fromDate: '2025-01-01', toDate: '2025-12-31' },
+  headers: { Authorization: 'Bearer ' + ownerToken },
+});
+check('ndvi-history 503 when Sentinel Hub not configured', r.status === 503);
+
+// Now set SENTINEL_HUB_INSTANCE_ID so validation paths can be exercised
+env.SENTINEL_HUB_INSTANCE_ID = 'fake-instance-id-for-test';
+
+// /api/ndvi-history — input validation (polygon required + has ≥3 vertices)
+r = await call('POST', '/api/ndvi-history', {
+  body: { fromDate: '2025-01-01' },
+  headers: { Authorization: 'Bearer ' + ownerToken },
+});
+check('ndvi-history 400 when polygon missing', r.status === 400);
+
+r = await call('POST', '/api/ndvi-history', {
+  body: { polygon: [[1,2],[3,4]], fromDate: '2025-01-01' },  // only 2 vertices
+  headers: { Authorization: 'Bearer ' + ownerToken },
+});
+check('ndvi-history 400 when polygon has <3 vertices', r.status === 400);
+
+r = await call('POST', '/api/ndvi-history', {
+  body: { polygon: validPolygon },  // missing fromDate
+  headers: { Authorization: 'Bearer ' + ownerToken },
+});
+check('ndvi-history 400 when fromDate missing', r.status === 400);
+
+// /api/ndvi-snapshot — auth gate
+r = await call('POST', '/api/ndvi-snapshot', {
+  body: { areaId: 1, polygon: validPolygon, date: '2025-05-21' },
+});
+check('ndvi-snapshot requires auth', r.status === 401);
+
+// /api/ndvi-snapshot — 503 when SENTINEL_HUB not set
+delete env.SENTINEL_HUB_INSTANCE_ID;
+r = await call('POST', '/api/ndvi-snapshot', {
+  body: { areaId: 1, polygon: validPolygon, date: '2025-05-21' },
+  headers: { Authorization: 'Bearer ' + ownerToken },
+});
+check('ndvi-snapshot 503 when Sentinel Hub not configured', r.status === 503);
+env.SENTINEL_HUB_INSTANCE_ID = 'fake-instance-id-for-test';
+
+// /api/ndvi-snapshot — input validation
+r = await call('POST', '/api/ndvi-snapshot', {
+  body: { areaId: 1, date: '2025-05-21' },  // missing polygon
+  headers: { Authorization: 'Bearer ' + ownerToken },
+});
+check('ndvi-snapshot 400 when polygon missing', r.status === 400);
+
+r = await call('POST', '/api/ndvi-snapshot', {
+  body: { polygon: validPolygon, date: '2025-05-21' },  // missing areaId
+  headers: { Authorization: 'Bearer ' + ownerToken },
+});
+check('ndvi-snapshot 400 when areaId missing', r.status === 400);
+
+r = await call('POST', '/api/ndvi-snapshot', {
+  body: { areaId: 1, polygon: validPolygon },  // missing date
+  headers: { Authorization: 'Bearer ' + ownerToken },
+});
+check('ndvi-snapshot 400 when date missing', r.status === 400);
+
+// /api/ndvi-snapshot — KV cache HIT path. Pre-populate a cache entry; the
+// endpoint should return the cached image without calling Sentinel Hub.
+const cacheKey = 'ndvi-cache:42:2025-05-21:512';
+const fakeDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg==';
+await env.PRICES.put(cacheKey, fakeDataUrl);
+
+r = await call('POST', '/api/ndvi-snapshot', {
+  body: { areaId: 42, polygon: validPolygon, date: '2025-05-21', width: 512 },
+  headers: { Authorization: 'Bearer ' + ownerToken },
+});
+check('ndvi-snapshot returns cached image on cache hit', r.status === 200 && r.json && r.json.image === fakeDataUrl && r.json.cached === true);
+
+// Different width → different cache key → cache MISS
+r = await call('POST', '/api/ndvi-snapshot', {
+  body: { areaId: 42, polygon: validPolygon, date: '2025-05-21', width: 256 },
+  headers: { Authorization: 'Bearer ' + ownerToken },
+});
+// We expect a 502 (WMS call attempt fails on the fake instance ID) — that
+// proves we MISSED the cache and tried to fetch live, which is correct.
+check('ndvi-snapshot cache key includes width (miss when width differs)', r.status === 502);
+
+// Different areaId → different cache key → cache MISS
+r = await call('POST', '/api/ndvi-snapshot', {
+  body: { areaId: 99, polygon: validPolygon, date: '2025-05-21', width: 512 },
+  headers: { Authorization: 'Bearer ' + ownerToken },
+});
+check('ndvi-snapshot cache key includes areaId (miss when area differs)', r.status === 502);
+
+// Clean up so the SENTINEL_HUB var doesn't leak into following tests
+delete env.SENTINEL_HUB_INSTANCE_ID;
+
 // ----- logout (kept last) -----
 r = await call('POST', '/api/logout', { headers: { Authorization: 'Bearer ' + mgrToken } });
 check('logout succeeds', r.status === 200);

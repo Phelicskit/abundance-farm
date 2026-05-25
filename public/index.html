@@ -1691,6 +1691,71 @@ function FieldDiagnose({ areaName, areaCrop, diagnoses, setDiagnoses, mobile }) 
 
 // ============================================================
 // ============================================================
+// NDVI helpers — pure, module-scope so the test harness can import them
+// without spinning up React. Used by NdviTimeline below.
+// ============================================================
+
+// Reduce a full pass list (one entry per Sentinel-2 overpass, often several
+// per ISO week) to AT MOST ONE pass per ISO week, picking the lowest
+// cloud-cover when multiple exist. Returns newest-first.
+function reduceToWeeklyPasses(passes) {
+  if (!Array.isArray(passes)) return [];
+  const byWeek = {};
+  passes.forEach(p => {
+    if (!p || !p.date) return;
+    const d = new Date(p.date);
+    if (isNaN(d.getTime())) return;
+    // ISO 8601 week-year + week number.
+    // Set tmp to Thursday of the same week; THE YEAR OF THAT THURSDAY is
+    // the ISO week-year (not the original date's calendar year — those
+    // differ for the Jan/Dec boundary, e.g. 2024-12-30 belongs to week
+    // 2025-W01 because the Thursday of that week falls in 2025).
+    const tmp = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
+    const wkYear = tmp.getUTCFullYear();
+    const wk = Math.ceil(((tmp - new Date(Date.UTC(wkYear, 0, 1))) / 86400000 + 1) / 7);
+    const key = `${wkYear}-W${String(wk).padStart(2, '0')}`;
+    if (!byWeek[key] || (byWeek[key].cloudCoverPercentage || 100) > (p.cloudCoverPercentage || 100)) {
+      byWeek[key] = p;
+    }
+  });
+  return Object.values(byWeek).sort((a, b) => b.date.localeCompare(a.date));
+}
+
+// Derive growth-stage milestone dates from a schedule. Returns
+// { 'YYYY-MM-DD': 'Stage Label' } so the timeline can show ★ on the
+// closest pass. Empty object if sched is null or has no stage dates.
+function deriveNdviMilestones(sched) {
+  if (!sched) return {};
+  const out = {};
+  const tag = (iso, label) => { if (iso) out[iso] = label; };
+  if (sched.crop === 'corn') {
+    tag(sched.plantingDate || sched.sowingDate, 'Planted');
+    tag(sched.tasselDate, 'Tasseling');
+    tag(sched.silkDate, 'Silking');
+    tag(sched.harvestDate, 'Harvest');
+  } else {
+    tag(sched.sowingDate, 'Sowing');
+    const txp = (sched.tasks || []).find(t => t.activity === 'Transplanting');
+    if (txp) tag(txp.planStart, 'Transplant');
+    tag(sched.panicleDate, 'Panicle Init');
+    const flw = (sched.tasks || []).find(t => t.activity === 'Flowering');
+    if (flw) tag(flw.planStart, 'Flowering');
+    tag(sched.harvestDate, 'Harvest');
+  }
+  return out;
+}
+
+// Days from transplant for a given date. Negative when date is before
+// transplant. Null if either input is missing or invalid.
+function daysFromTransplant(targetIso, transplantIso) {
+  if (!targetIso || !transplantIso) return null;
+  const d1 = new Date(transplantIso), d2 = new Date(targetIso);
+  if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return null;
+  return Math.round((d2 - d1) / 86400000);
+}
+
+// ============================================================
 // NDVI TIMELINE — weekly Sentinel-2 NDVI snapshots per area
 // ============================================================
 // Renders a chronological grid of NDVI thumbnails for the area's polygon
@@ -1718,27 +1783,10 @@ function NdviTimeline({ area, sched, mobile }) {
     return '';
   };
 
-  // Map growth-stage dates → milestone labels (rice + corn)
-  const milestones = useMemo(() => {
-    if (!sched) return {};
-    const out = {};
-    const tag = (iso, label) => { if (iso) out[iso] = label; };
-    if (sched.crop === 'corn') {
-      tag(sched.plantingDate || sched.sowingDate, 'Planted');
-      tag(sched.tasselDate, 'Tasseling');
-      tag(sched.silkDate, 'Silking');
-      tag(sched.harvestDate, 'Harvest');
-    } else {
-      tag(sched.sowingDate, 'Sowing');
-      const txp = (sched.tasks || []).find(t => t.activity === 'Transplanting');
-      if (txp) tag(txp.planStart, 'Transplant');
-      tag(sched.panicleDate, 'Panicle Init');
-      const flw = (sched.tasks || []).find(t => t.activity === 'Flowering');
-      if (flw) tag(flw.planStart, 'Flowering');
-      tag(sched.harvestDate, 'Harvest');
-    }
-    return out;
-  }, [sched]);
+  // Map growth-stage dates → milestone labels (rice + corn). Pure helper
+  // extracted to module scope so the test harness can exercise it without
+  // mounting React. See deriveNdviMilestones() above.
+  const milestones = useMemo(() => deriveNdviMilestones(sched), [sched]);
 
   // Date math: today, transplant
   const today = new Date().toISOString().slice(0, 10);
@@ -1809,32 +1857,12 @@ function NdviTimeline({ area, sched, mobile }) {
     setBackfilling(false);
   };
 
-  // Reduce passes to ≤1 per week so the grid doesn't get overwhelming
-  // (Sentinel-2 has 2-3 passes per week; keep the cloud-freest one per ISO week)
-  const weeklyPasses = useMemo(() => {
-    if (!passes) return [];
-    const byWeek = {};
-    passes.forEach(p => {
-      const d = new Date(p.date);
-      const yr = d.getUTCFullYear();
-      // ISO week number
-      const tmp = new Date(Date.UTC(yr, d.getUTCMonth(), d.getUTCDate()));
-      tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
-      const wk = Math.ceil(((tmp - new Date(Date.UTC(yr, 0, 1))) / 86400000 + 1) / 7);
-      const key = `${yr}-W${String(wk).padStart(2, '0')}`;
-      if (!byWeek[key] || (byWeek[key].cloudCoverPercentage || 100) > (p.cloudCoverPercentage || 100)) {
-        byWeek[key] = p;
-      }
-    });
-    return Object.values(byWeek).sort((a, b) => b.date.localeCompare(a.date));
-  }, [passes]);
+  // Reduce passes to ≤1 per ISO week, picking lowest cloud cover. See
+  // reduceToWeeklyPasses() at module scope.
+  const weeklyPasses = useMemo(() => reduceToWeeklyPasses(passes), [passes]);
 
-  // Day-from-transplant
-  const dft = (iso) => {
-    if (!area.transplantDate) return null;
-    const d1 = new Date(area.transplantDate), d2 = new Date(iso);
-    return Math.round((d2 - d1) / 86400000);
-  };
+  // Day-from-transplant. See daysFromTransplant() at module scope.
+  const dft = (iso) => daysFromTransplant(iso, area.transplantDate);
 
   // Cloud-cover color
   const ccColor = (cc) => cc == null ? '#888' : cc < 10 ? '#2e7d32' : cc < 30 ? '#f9a825' : '#c62828';
