@@ -33,45 +33,33 @@ if git diff --cached --quiet; then
   echo "Nothing to commit — repo is already clean."
 else
   echo ">> Committing..."
-  git commit -m "Big improvements batch: cost preview, batch buy list, price history, AI prompts
+  git commit -m "Fix map blank-screen + GPS integration (4 features)
 
-After simulating end-to-end corn workflow, shipped 11 quality-of-life additions
-covering pricing visibility, automation, and corn-specific polish:
+Map fix:
+- Leaflet's container measurement runs during init; when subTab='map' first
+  renders the parent's final dimensions haven't settled yet, so the map
+  reports 0x0 and shows blank. Now calls invalidateSize() on rAF + at 250ms
+  + at 800ms, plus a window resize/orientationchange listener. Also adds an
+  errorTileUrl (1x1 transparent gif) so failed satellite tiles don't show
+  broken-image boxes; first tile error logged once for debugging.
 
-UX polish:
-- Print sheet says 'Planted' for corn, 'Sowing' for rice
-- Corn areas hide the rice-only Planting Method dropdown
-- Area date field auto-labels: 'Planting Date' / 'Seeding Date' / 'Transplant Date'
-- Override key parser rejects keys with dashes in the task-id tail (fixes the
-  'Plot' vs 'Plot-2' area name prefix collision)
+GPS integration (4 features):
+- 'Drop pin at my location' button — in drawing mode, captures current GPS
+  as a polygon vertex (far more accurate than tapping on satellite at zoom).
+  In idle mode, recenters the map on your position.
+- 'Track me' toggle — uses navigator.geolocation.watchPosition to continuously
+  update a blue 'you are here' circleMarker + accuracy circle (Leaflet
+  circleMarker + circle with radius=accuracy in meters).
+- Auto-center on first open — when an area has no polygon yet, request a
+  one-shot GPS fix and recenter on the user's position instead of the
+  hardcoded Santa Maria coords.
+- GPS-tag field diagnose photos — captures lat/lon/accuracy in parallel with
+  the /api/diagnose call (best-effort, doesn't block). Stored on the diagnosis
+  entry as { gps: { lat, lon, accuracy, at } }. History list shows the
+  coordinates as a clickable link to Google Maps with the ±m accuracy badge.
 
-Pricing visibility:
-- NPK Tracker now shows live ₱ fertilizer spent per area (applied kg × manual
-  prices), plus per-ha cost. Flags missing prices.
-- Alt-Fertilizer protocol header shows ₱ savings vs default ('Switching saves
-  ₱X this cycle, Y% less'). Uses planSchedCost helper.
-- Fertilizer Prices panel adds a Trend column with 12-entry sparkline +
-  pct change. Price history auto-snapshots on edit and is server-synced
-  (rfops-fertilizerPriceHistory state).
-
-New advisor:
-- Dashboard cheapest-N advisor card: surfaces 'Switch <area> to Alt-Fertilizer
-  for ₱X savings' when an active area would save ≥₱2000 by switching its urea
-  to a cheaper N source based on current prices.
-
-Batch optimization:
-- New 'Next 14 days consolidated fertilizer shopping list' panel on the
-  Inventory tab. Groups upcoming fertilizer tasks across all active areas,
-  subtracts on-hand stock, multiplies short-kg by manual price → 'Need to
-  buy: ₱X' single number.
-
-Corn improvements:
-- Labor heuristic now distinguishes corn planting (2 wd/ha, drill/hill) from
-  rice transplanting (8 wd/ha). Adds 'cultivation' (3 wd/ha) for corn hilling.
-- AI diagnose prompt is now crop-aware: corn photos get the full
-  fall-armyworm/rust/downy-mildew context; rice photos get
-  tungro/blight/blast/leafhopper context. Eliminates rice-tilted answers on
-  corn photos.
+All GPS handlers gracefully degrade if geolocation is unavailable, permission
+is denied, or the request times out. Watch handles are cleaned up on unmount.
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 fi

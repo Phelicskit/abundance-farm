@@ -1491,10 +1491,24 @@ function FieldDiagnose({ areaName, areaCrop, diagnoses, setDiagnoses, mobile }) 
     }
   };
 
+  // GPS-tag the photo at submit time (NOT at file-pick time, so the user has
+  // a chance to walk to the spot they want recorded). Best-effort: failures
+  // (no permission, no GPS) don't block the diagnose call.
+  const getCurrentGps = () => new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude, accuracy: p.coords.accuracy, at: new Date().toISOString() }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+    );
+  });
+
   const submit = async () => {
     if (!imageDataUrl) { setError("Take or choose a photo first."); return; }
     setBusy(true); setError(null);
     try {
+      // Try to capture GPS in parallel with the upload (don't block on it)
+      const gpsPromise = getCurrentGps();
       let token = '';
       try {
         const raw = localStorage.getItem('abundance-farm-auth-v1');
@@ -1511,6 +1525,7 @@ function FieldDiagnose({ areaName, areaCrop, diagnoses, setDiagnoses, mobile }) 
         setBusy(false);
         return;
       }
+      const gps = await gpsPromise;
       const entry = {
         id: Date.now(),
         area: areaName,
@@ -1519,6 +1534,7 @@ function FieldDiagnose({ areaName, areaCrop, diagnoses, setDiagnoses, mobile }) 
         image: imageDataUrl,
         notes,
         result: json.diagnosis || {},
+        gps,        // { lat, lon, accuracy, at } or null
       };
       setDiagnoses(prev => [entry, ...(prev || [])]);
       setImageDataUrl(null);
@@ -1637,10 +1653,19 @@ function FieldDiagnose({ areaName, areaCrop, diagnoses, setDiagnoses, mobile }) 
                     {r.notes && <div style={{ fontSize:12, color:"#666", marginBottom:6, lineHeight:1.4 }}>{r.notes}</div>}
                     {r.raw && <div style={{ fontSize:12, color:"#888", whiteSpace:"pre-wrap" }}>{r.raw}</div>}
                     {d.notes && <div style={{ fontSize:11, color:"#888", marginTop:6, fontStyle:"italic" }}>Supervisor noted: "{d.notes}"</div>}
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8, flexWrap:"wrap", gap:6 }}>
                       <div style={{ fontSize:10, color:"#999" }}>
                         {new Date(d.at).toLocaleString('en-PH', {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'})}
                         {d.by && ` · ${d.by}`}
+                        {d.gps && (
+                          <span title={`GPS captured at photo upload · ±${Math.round(d.gps.accuracy)}m`} style={{ marginLeft:6, color:"#1976d2" }}>
+                            · 📍 <a
+                              href={`https://www.google.com/maps?q=${d.gps.lat},${d.gps.lon}`}
+                              target="_blank" rel="noopener noreferrer"
+                              style={{ color:"#1976d2", textDecoration:"none", fontFamily:"monospace" }}
+                            >{d.gps.lat.toFixed(5)}, {d.gps.lon.toFixed(5)}</a> <span style={{ color:"#999" }}>±{Math.round(d.gps.accuracy)}m</span>
+                          </span>
+                        )}
                       </div>
                       <button onClick={() => removeEntry(d.id)} style={{ background:"none", border:"none", color:"#c62828", fontSize:11, cursor:"pointer", textDecoration:"underline" }}>Delete</button>
                     </div>
@@ -1692,10 +1717,17 @@ function ParcelMap({ area, updateArea, allAreas, mobile }) {
   const polygonRef = React.useRef(null);          // the green committed polygon
   const drawLayersRef = React.useRef([]);         // markers + polylines added while in 'drawing' mode
   const editVertexMarkersRef = React.useRef([]);  // draggable vertex markers added while in 'editing' mode
+  const gpsLayerRef = React.useRef(null);         // "you are here" marker (Leaflet circleMarker + accuracy circle)
   const [ready, setReady] = useState(false);
   // mode: 'idle' | 'drawing' | 'editing'
   const [mode, setMode] = useState('idle');
   const [drawingPoints, setDrawingPoints] = useState([]);
+  // GPS state — { lat, lon, accuracy } | null
+  const [gpsPos, setGpsPos] = useState(null);
+  const [gpsWatching, setGpsWatching] = useState(false);
+  const [gpsError, setGpsError] = useState(null);
+  const [gpsBusy, setGpsBusy] = useState(false);
+  const gpsWatchIdRef = React.useRef(null);
   const [showNdvi, setShowNdvi] = useState(false);
   const [ndviAvailable, setNdviAvailable] = useState(null); // null=unknown, true/false
   const [ndviInfo, setNdviInfo] = useState(null);            // { date, cloudCoverPercentage, previousDate }
@@ -1753,11 +1785,22 @@ function ParcelMap({ area, updateArea, allAreas, mobile }) {
     const map = L.map(mapElRef.current, { zoomControl:true, tap: true }).setView(center, area.polygon ? 16 : 14);
     mapRef.current = map;
 
-    // ESRI World Imagery — free, no auth required
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    // ESRI World Imagery — free, no auth required.
+    // errorTileUrl: 1x1 transparent gif so failed tiles don't show broken-img.
+    // Tile-load errors are logged but don't crash the map.
+    const tileLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
       attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics',
       maxZoom: 19,
-    }).addTo(map);
+      errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==',
+    });
+    tileLayer.on('tileerror', (e) => {
+      // Don't spam; first error is enough info to debug.
+      if (!tileLayer._loggedError) {
+        tileLayer._loggedError = true;
+        console.warn('[ParcelMap] tile load failed', e && e.error);
+      }
+    });
+    tileLayer.addTo(map);
 
     // Render other areas' polygons as faded reference outlines
     (allAreas || []).filter(x => x.id !== area.id && x.polygon && x.polygon.length >= 3).forEach(x => {
@@ -1774,11 +1817,121 @@ function ParcelMap({ area, updateArea, allAreas, mobile }) {
       try { map.fitBounds(poly.getBounds(), { padding: [20, 20] }); } catch (e) {}
     } else {
       polygonRef.current = null;
+      // No polygon yet — try GPS auto-center so we land at the actual field
+      // instead of the hardcoded Santa Maria coords. Best-effort only;
+      // failures (no permission, no GPS) silently fall back to FARM_LAT/LON.
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (p) => {
+            if (!mapRef.current || mapRef.current !== map) return; // remounted; skip
+            map.setView([p.coords.latitude, p.coords.longitude], 17);
+          },
+          () => { /* permission denied or timeout — keep default */ },
+          { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
+        );
+      }
     }
 
+    // FIX BLANK MAP: Leaflet measures the container during init, but the
+    // container may not have its final dimensions yet when subTab="map" first
+    // renders (React layout settles in the next animation frame). Invalidate
+    // size on next paint and again a beat later to force re-measure.
+    requestAnimationFrame(() => { try { map.invalidateSize(); } catch (e) {} });
+    const t1 = setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 250);
+    const t2 = setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 800);
+    // Also re-measure on window resize and orientation change (mobile rotate)
+    const onResize = () => { try { map.invalidateSize(); } catch (e) {} };
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+
     setComputedHa(area.polygon ? polygonAreaHa(area.polygon) : 0);
-    return () => { map.remove(); mapRef.current = null; };
+    return () => {
+      clearTimeout(t1); clearTimeout(t2);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+      // Stop GPS watching if active
+      if (gpsWatchIdRef.current != null && navigator.geolocation) {
+        try { navigator.geolocation.clearWatch(gpsWatchIdRef.current); } catch (e) {}
+        gpsWatchIdRef.current = null;
+      }
+      map.remove(); mapRef.current = null;
+    };
   }, [ready, area.id, area.polygon]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ============================================================
+  // GPS LAYER — "you are here" blue dot + accuracy circle
+  // ============================================================
+  // Render or update the GPS marker whenever gpsPos changes. Uses a circleMarker
+  // for the dot and a circle (radius in meters) for accuracy.
+  useEffect(() => {
+    if (!ready || !mapRef.current) return;
+    const map = mapRef.current;
+    // Remove old layer
+    if (gpsLayerRef.current) {
+      try { map.removeLayer(gpsLayerRef.current); } catch (e) {}
+      gpsLayerRef.current = null;
+    }
+    if (!gpsPos) return;
+    const group = L.layerGroup();
+    L.circle([gpsPos.lat, gpsPos.lon], {
+      radius: gpsPos.accuracy || 20,
+      color: '#1976d2', weight: 1, fillColor: '#1976d2', fillOpacity: 0.12,
+    }).addTo(group);
+    L.circleMarker([gpsPos.lat, gpsPos.lon], {
+      radius: 7, color: 'white', weight: 2, fillColor: '#1976d2', fillOpacity: 1,
+    }).bindTooltip(`You are here · ±${Math.round(gpsPos.accuracy || 0)}m`).addTo(group);
+    group.addTo(map);
+    gpsLayerRef.current = group;
+  }, [gpsPos, ready]);
+
+  // GPS controls: one-shot vs continuous watching
+  const startWatchingGPS = () => {
+    if (!navigator.geolocation) { setGpsError('Geolocation not supported by this browser.'); return; }
+    setGpsError(null);
+    if (gpsWatchIdRef.current != null) {
+      try { navigator.geolocation.clearWatch(gpsWatchIdRef.current); } catch (e) {}
+      gpsWatchIdRef.current = null;
+      setGpsWatching(false);
+      return;
+    }
+    setGpsWatching(true);
+    gpsWatchIdRef.current = navigator.geolocation.watchPosition(
+      (p) => {
+        setGpsPos({ lat: p.coords.latitude, lon: p.coords.longitude, accuracy: p.coords.accuracy });
+        setGpsError(null);
+      },
+      (err) => {
+        setGpsError(err.code === 1 ? 'Permission denied. Enable Location in browser settings.' : err.message);
+        setGpsWatching(false);
+        gpsWatchIdRef.current = null;
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 }
+    );
+  };
+
+  const dropPinAtGPS = () => {
+    if (!navigator.geolocation) { setGpsError('Geolocation not supported.'); return; }
+    setGpsBusy(true); setGpsError(null);
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        setGpsBusy(false);
+        const pt = [p.coords.latitude, p.coords.longitude];
+        setGpsPos({ lat: pt[0], lon: pt[1], accuracy: p.coords.accuracy });
+        if (mode === 'drawing') {
+          // Append to in-progress polygon
+          setDrawingPoints(pts => [...pts, pt]);
+        } else {
+          // Just recenter the map at the GPS position
+          if (mapRef.current) mapRef.current.setView(pt, Math.max(mapRef.current.getZoom(), 17));
+        }
+      },
+      (err) => {
+        setGpsBusy(false);
+        setGpsError(err.code === 1 ? 'Permission denied. Enable Location in browser settings.' : err.message);
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+    );
+  };
 
   // ============================================================
   // DRAWING MODE — custom guided flow
@@ -2027,6 +2180,55 @@ function ParcelMap({ area, updateArea, allAreas, mobile }) {
           )}
         </div>
       )}
+
+      {/* GPS toolbar — works in idle, drawing, and editing modes */}
+      <div style={{
+        background:"white", borderRadius:12, padding: mobile ? "8px 10px" : "10px 14px",
+        boxShadow:"0 1px 4px rgba(0,0,0,.07)",
+        display:"flex", flexWrap:"wrap", alignItems:"center", gap:8
+      }}>
+        <button
+          onClick={dropPinAtGPS}
+          disabled={gpsBusy}
+          title={mode === 'drawing'
+            ? "Capture your current GPS location as a polygon vertex"
+            : "Recenter the map on your current GPS location"}
+          style={{
+            padding:"8px 12px", borderRadius:8, border:"none",
+            background: gpsBusy ? "#bbb" : (mode === 'drawing' ? "#2e7d32" : "#1976d2"),
+            color:"white", fontSize:12, fontWeight:700, cursor: gpsBusy ? "wait" : "pointer",
+            whiteSpace:"nowrap"
+          }}
+        >
+          {gpsBusy ? "📡 Getting GPS…" : (mode === 'drawing' ? "📍 Drop pin at my location" : "📍 Center on my location")}
+        </button>
+        <button
+          onClick={startWatchingGPS}
+          title="Continuously update your position on the map as you move around the field"
+          style={{
+            padding:"8px 12px", borderRadius:8,
+            border: gpsWatching ? "none" : "1px solid #1976d2",
+            background: gpsWatching ? "#1976d2" : "white",
+            color: gpsWatching ? "white" : "#1976d2",
+            fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap"
+          }}
+        >
+          {gpsWatching ? "🛰 Tracking · stop" : "🛰 Track me"}
+        </button>
+        {gpsPos && (
+          <span style={{ fontSize:11, color:"#666", fontFamily:"monospace" }}>
+            {gpsPos.lat.toFixed(5)}, {gpsPos.lon.toFixed(5)}
+            <span style={{ color: gpsPos.accuracy > 50 ? "#c62828" : gpsPos.accuracy > 15 ? "#ef6c00" : "#2e7d32", marginLeft:6 }}>
+              ±{Math.round(gpsPos.accuracy)}m
+            </span>
+          </span>
+        )}
+        {gpsError && (
+          <span style={{ fontSize:11, color:"#c62828", marginLeft:"auto" }}>
+            ⚠ {gpsError}
+          </span>
+        )}
+      </div>
 
       {/* The map */}
       <div ref={mapElRef} style={{ height: mobile ? 400 : 520, borderRadius:12, overflow:"hidden", boxShadow:"0 1px 4px rgba(0,0,0,.07)", background:"#f0eee5" }}>
