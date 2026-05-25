@@ -473,7 +473,7 @@ export default {
       const maxX = -20037508.343 + (x + 1) * tileSize;
       const minY =  20037508.343 - (y + 1) * tileSize;
       const maxY =  20037508.343 -  y * tileSize;
-      const layerName = env.SENTINEL_HUB_LAYER_NAME || 'NDVI';
+      const layerName = env.SENTINEL_HUB_LAYER_NAME || 'VEGETATION_INDEX';
       // Copernicus Data Space accounts use sh.dataspace.copernicus.eu;
       // legacy Sentinel Hub accounts use services.sentinel-hub.com.
       const wmsHost = env.SENTINEL_HUB_WMS_HOST || 'https://sh.dataspace.copernicus.eu';
@@ -530,7 +530,7 @@ export default {
         while ((m = re.exec(xml)) !== null) {
           layers.push({ name: m[1], title: m[2] || '' });
         }
-        const configuredLayerName = env.SENTINEL_HUB_LAYER_NAME || 'NDVI';
+        const configuredLayerName = env.SENTINEL_HUB_LAYER_NAME || 'VEGETATION_INDEX';
         const configuredExists = layers.some(l => l.name === configuredLayerName);
         return jsonResponse({
           layers,
@@ -683,7 +683,7 @@ export default {
       const aspectRatio = (maxY - minY) / (maxX - minX);
       const height = Math.round(width * aspectRatio);
 
-      const layerName = env.SENTINEL_HUB_LAYER_NAME || 'NDVI';
+      const layerName = env.SENTINEL_HUB_LAYER_NAME || 'VEGETATION_INDEX';
       const wmsHost = env.SENTINEL_HUB_WMS_HOST || 'https://sh.dataspace.copernicus.eu';
       const wms = new URL(`${wmsHost}/ogc/wms/${env.SENTINEL_HUB_INSTANCE_ID}`);
       wms.searchParams.set('SERVICE', 'WMS');

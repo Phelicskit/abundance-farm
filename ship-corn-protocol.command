@@ -33,7 +33,7 @@ if git diff --cached --quiet; then
   echo "Nothing to commit — repo is already clean."
 else
   echo ">> Committing..."
-  git commit -m "Add /api/ndvi-layers — discover the actual WMS layer name in Sentinel Hub config
+  git commit -m "NDVI: change default layer name to VEGETATION_INDEX (matches Sentinel Hub preset)
 
 Adds automated test coverage for the NDVI feature shipped in 7e3b951.
 While writing the tests one real bug surfaced — the ISO week-year
