@@ -1196,16 +1196,25 @@ function Dashboard(props) {
                   </div>
                 )}
 
-                {/* Input Requirements: Applied / Total — crop-aware.
-                    Rice schedule has urea_N1K1/N2K2/N3K3 + mop_K + faa.
-                    Corn schedule has sd1_urea_kg + sd2_urea_kg + sd2_mop_kg + basal_14_14_14_kg.
-                    Defensive: every additive expression guards undefined → 0. */}
+                {/* Input Requirements: Applied / Total — protocol-aware.
+                    Three input-quantity layouts:
+                      • Corn (corn-standard, corn-alt-fert): basal_14_14_14_kg + sd1_urea_kg + sd2_urea_kg + sd2_mop_kg
+                      • Ka Danny rice: amSulf21Bags (21-0-0) + amChlBags (25-0-0) + bulaklakBags (14-14-14 fallback) + topDressBags (0-0-60) + FAA
+                      • Default rice (default, rice-alt-fert): urea_N1K1/N2K2/N3K3 + mop_K + basal + FAA
+                    Detected via sched.crop + sched.protocolName. All additive
+                    expressions guard undefined → 0 so we never NaN.    */}
                 {sched && (
                   <div style={{ display:"flex", flexWrap:"wrap", gap:4, marginBottom:10 }}>
                     {(sched.crop === 'corn' ? [
                       { label:"14-14-14", total: (sched.quantities.basal_14_14_14_kg || 0), applied: a.applied["14-14-14"], fmt: v => `${Math.round(v)} kg`, bg:"#e3f2fd", c:"#1565c0" },
                       { label:"46-0-0", total: ((sched.quantities.sd1_urea_kg || 0) + (sched.quantities.sd2_urea_kg || 0)), applied: a.applied["46-0-0"], fmt: v => `${Math.round(v/50)} bags`, bg:"#e8f5e9", c:"#2e7d32" },
                       { label:"0-0-60", total: (sched.quantities.sd2_mop_kg || 0), applied: a.applied["0-0-60"], fmt: v => `${Math.round(v/50)} bags`, bg:"#fff3e0", c:"#e65100" },
+                    ] : /Ka Danny/i.test(sched.protocolName || '') ? [
+                      { label:"21-0-0", total: ((sched.quantities.amSulf21Bags || 0) * 50), applied: a.applied["21-0-0"], fmt: v => `${(v/50).toFixed(1)} bags`, bg:"#fff8e1", c:"#bf360c" },
+                      { label:"25-0-0", total: ((sched.quantities.amChlBags || 0) * 50), applied: a.applied["25-0-0"], fmt: v => `${(v/50).toFixed(1)} bags`, bg:"#fff8e1", c:"#bf360c" },
+                      { label:"14-14-14", total: ((sched.quantities.bulaklakBags || 0) * 50), applied: a.applied["14-14-14"], fmt: v => `${(v/50).toFixed(1)} bags`, bg:"#e3f2fd", c:"#1565c0" },
+                      { label:"0-0-60", total: ((sched.quantities.topDressBags || 0) * 50), applied: a.applied["0-0-60"], fmt: v => `${(v/50).toFixed(1)} bags`, bg:"#fff3e0", c:"#e65100" },
+                      { label:"FAA", total: (sched.quantities.totalFAA_L || 0), applied: a.applied["FAA_mL"], fmt: v => `${Math.round(v/1000)}L`, bg:"#f3e5f5", c:"#7b1fa2" },
                     ] : [
                       { label:"14-14-14", total: (sched.quantities.basalSeedbedKg || 0) + parseFloat(sched.quantities.basalFieldBags || 0)*50, applied: a.applied["14-14-14"], fmt: v => `${Math.round(v)} kg`, bg:"#e3f2fd", c:"#1565c0" },
                       { label:"46-0-0", total: ((sched.quantities.urea_N1K1 || 0) + (sched.quantities.urea_N2K2 || 0) + (sched.quantities.urea_N3K3 || 0)), applied: a.applied["46-0-0"], fmt: v => `${Math.round(v/50)} bags`, bg:"#e8f5e9", c:"#2e7d32" },
@@ -8273,7 +8282,7 @@ function generateDemoData(opts) {
     { id: 800001, _demo: true, name: '[DEMO] Plot A · Riverside', ha: 8, managedBy: '[DEMO] Mang Tirso', commissionPct: 10, crop: 'rice', breed: 'NSIC Rc 222', maturity: 114, season: 'Wet 2025', transplantDate: D(-60), status: 'Active',  notes: 'Demo area — irrigated rice', protocol: 'default', plantingMethod: 'transplanting', polygon: polyAt( 0.0020, -0.0030, 140) },
     { id: 800002, _demo: true, name: '[DEMO] Plot B · Main',      ha:12, managedBy: '[DEMO] Aling Carmen', commissionPct: 10, crop: 'rice', breed: 'NSIC Rc 216', maturity: 114, season: 'Wet 2025', transplantDate: D(-72), status: 'Active',  notes: 'Demo area — largest rice plot', protocol: 'default', plantingMethod: 'transplanting', polygon: polyAt( 0.0020,  0.0010, 175) },
     { id: 800003, _demo: true, name: '[DEMO] Plot C · West',      ha: 6, managedBy: '[DEMO] Mang Tirso', commissionPct: 10, crop: 'rice', breed: 'NSIC Rc 160', maturity: 112, season: 'Wet 2025', transplantDate: D(-90), status: 'Active',  notes: 'Demo area — Ka Danny protocol', protocol: 'kadanny', plantingMethod: 'transplanting', polygon: polyAt(-0.0010, -0.0040, 120) },
-    { id: 800004, _demo: true, name: '[DEMO] Plot D · Backfield', ha: 5, managedBy: '[DEMO] Boyet',     commissionPct: 12, crop: 'rice', breed: 'NSIC Rc 222', maturity: 114, season: 'Dry 2026', transplantDate: D(  15), status: 'Planning', notes: 'Demo area — planned dry-season', protocol: 'rice-alt-fert', plantingMethod: 'wet-direct', polygon: polyAt(-0.0030, 0.0020, 110) },
+    { id: 800004, _demo: true, name: '[DEMO] Plot D · Backfield', ha: 5, managedBy: '[DEMO] Boyet',     commissionPct: 12, crop: 'rice', breed: 'NSIC Rc 222', maturity: 114, season: 'Dry 2026', transplantDate: D( 10), status: 'Planning', notes: 'Demo area — planned dry-season (transplant in 10 days so Basal Field event falls in the 14-day batch-buy window)', protocol: 'rice-alt-fert', plantingMethod: 'transplanting', polygon: polyAt(-0.0030, 0.0020, 110) },
     { id: 800005, _demo: true, name: '[DEMO] Plot E · Cornfield', ha: 4, managedBy: '[DEMO] Lito',      commissionPct: 10, crop: 'corn', breed: 'DK 9132',     maturity: 110, season: 'Wet 2025', transplantDate: D(-45), status: 'Active', notes: 'Demo area — yellow hybrid corn', protocol: 'corn-standard',  plantingMethod: 'transplanting', polygon: polyAt(-0.0010, 0.0030, 105) },
   ];
 

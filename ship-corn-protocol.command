@@ -33,31 +33,36 @@ if git diff --cached --quiet; then
   echo "Nothing to commit — repo is already clean."
 else
   echo ">> Committing..."
-  git commit -m "Demo data generator + UI panel (stress test in seconds)
+  git commit -m "Simulation findings: Ka Danny dashboard fix + Plot D demo date tweak
 
-Generates 6 years of simulated farm operations (704 records across 20
-categories) so all functions can be exercised end-to-end without manual
-data entry. Every demo record is tagged with _demo:true (objects) or has
-an id in 800000-899999 (arrays); the Delete button filters by that tag
-so real data is never touched.
+Two issues surfaced when running the end-to-end simulation against the
+demo dataset:
 
-New code:
-- generateDemoData({today, yearsBack}) — pure function that returns a
-  deterministic dataset (seeded PRNG, seed=42) covering: 5 areas (4 rice +
-  1 corn) with polygons around Santa Maria, 5 supervisors, ~54 harvests
-  over 6 years, ~240 timed purchases with inflation drift, 39 labor logs,
-  22 cash advances, 3 equipment + 82 fuel logs + 14 maintenance logs,
-  41 electricity bills, 25 spray logs, 12 diagnoses with GPS coords,
-  fertilizer prices for 6 products with 12-entry history each, 4 recurring
-  obligations, 10 custom protocol tasks, 15 task-meta completions,
-  8 tool inventory items, 12 usage entries.
-- countDemoRecords(state) — counts _demo-tagged items across all the
-  shapes used (arrays, dicts of arrays, dicts of objects).
-- DemoDataPanel component — collapsed at the bottom of the Inventory tab.
-  Shows current count, 'Load' button (merge-only — never overwrites real
-  data; skips IDs that already exist), 'Delete' button (filters by _demo).
-- Threaded all 18 useSyncedState setters down to InventoryTracker via
-  demoStateBag prop so the panel can populate every key in one click.
+1. Plot C (Ka Danny protocol) showed 0/0 fertilizer totals on the Dashboard
+   per-area card. The card had only two branches — corn vs. rice-default —
+   so Ka Danny areas hit the rice branch and tried to read urea_N1K1 /
+   mop_N1K1 / mop_K from sched.quantities, which Ka Danny doesn't expose
+   (it uses amSulf21Bags, amChlBags, bulaklakBags, topDressBags instead).
+   Result: every quantity tile rendered 0 kg / 0 bags. Added a third
+   branch that detects 'Ka Danny' in sched.protocolName and maps its
+   bag-denominated quantities to the 21-0-0 / 25-0-0 / 14-14-14 / 0-0-60
+   tiles (plus FAA from totalFAA_L). All branches guard undefined → 0.
+
+2. Demo Plot D's transplantDate + wet-direct planting method placed every
+   fertilizer event outside the 14-day batch-buy window, so the new
+   'consolidated shopping list' panel rendered empty whenever someone
+   loaded the demo. Changed Plot D to plantingMethod='transplanting' and
+   transplantDate=today+10 so the seedbed top-dress (21-0-0, 25 kg) and
+   basal field events fall in the upcoming window and the panel
+   demonstrates correctly.
+
+Verified end-to-end via simulate.mjs harness: 5 area schedules generate
+cleanly, dashboard cards now show non-zero totals for all 5 plots,
+14-day batch-buy list shows '21-0-0 25 kg (1 bag)' from Plot D, 22
+advisories fire (including 2 new altFertSavings rules at high severity),
+alt-fert savings computed for 4 plots, labor classifications all correct
+for the corn-specific patterns. Total demo dataset: 704 records, 6 years
+of revenue ≈ ₱37.4M (realistic for 35 ha rice+corn at 1.04x/yr drift).
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 fi
