@@ -33,24 +33,45 @@ if git diff --cached --quiet; then
   echo "Nothing to commit — repo is already clean."
 else
   echo ">> Committing..."
-  git commit -m "Corn-aware fixes: dashboard cards, NPK targets, advisory filters
+  git commit -m "Big improvements batch: cost preview, batch buy list, price history, AI prompts
 
-After the corn protocol shipped, simulated end-to-end use of a corn area and
-found several places that still assumed rice schedule shape or detected crop
-via breed-substring matching. Fixed:
+After simulating end-to-end corn workflow, shipped 11 quality-of-life additions
+covering pricing visibility, automation, and corn-specific polish:
 
-- Dashboard per-area card: crop-aware key dates (Planted/Tassel/Silk for corn
-  vs Sow/Transplant/Panicle for rice) and crop-aware input totals (corn pulls
-  from basal_14_14_14_kg + sd1_urea_kg + sd2_urea_kg + sd2_mop_kg; rice pulls
-  from the existing N1K1/N2K2/N3K3 fields). All additive expressions now guard
-  undefined → 0 so corn cards no longer NaN.
+UX polish:
+- Print sheet says 'Planted' for corn, 'Sowing' for rice
+- Corn areas hide the rice-only Planting Method dropdown
+- Area date field auto-labels: 'Planting Date' / 'Seeding Date' / 'Transplant Date'
+- Override key parser rejects keys with dashes in the task-id tail (fixes the
+  'Plot' vs 'Plot-2' area name prefix collision)
 
-- NPK Tracker: targets now switch on crop. Rice keeps 105N/45P/45K (irrigated
-  lowland). Hybrid yellow corn now uses 175N/75P/75K (PhilRice/DA-BPI).
+Pricing visibility:
+- NPK Tracker now shows live ₱ fertilizer spent per area (applied kg × manual
+  prices), plus per-ha cost. Flags missing prices.
+- Alt-Fertilizer protocol header shows ₱ savings vs default ('Switching saves
+  ₱X this cycle, Y% less'). Uses planSchedCost helper.
+- Fertilizer Prices panel adds a Trend column with 12-entry sparkline +
+  pct change. Price history auto-snapshots on edit and is server-synced
+  (rfops-fertilizerPriceHistory state).
 
-- FieldDiagnose, harvest forecast crop detection, seasonal-hold advisory, and
-  skip-AWD weather alert: all now prefer area.crop with breed-substring as
-  the legacy fallback.
+New advisor:
+- Dashboard cheapest-N advisor card: surfaces 'Switch <area> to Alt-Fertilizer
+  for ₱X savings' when an active area would save ≥₱2000 by switching its urea
+  to a cheaper N source based on current prices.
+
+Batch optimization:
+- New 'Next 14 days consolidated fertilizer shopping list' panel on the
+  Inventory tab. Groups upcoming fertilizer tasks across all active areas,
+  subtracts on-hand stock, multiplies short-kg by manual price → 'Need to
+  buy: ₱X' single number.
+
+Corn improvements:
+- Labor heuristic now distinguishes corn planting (2 wd/ha, drill/hill) from
+  rice transplanting (8 wd/ha). Adds 'cultivation' (3 wd/ha) for corn hilling.
+- AI diagnose prompt is now crop-aware: corn photos get the full
+  fall-armyworm/rust/downy-mildew context; rice photos get
+  tungro/blight/blast/leafhopper context. Eliminates rice-tilted answers on
+  corn photos.
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 fi

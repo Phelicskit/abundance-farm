@@ -530,7 +530,27 @@ export default {
         return jsonResponse({ error: 'image too large — resize to under 3MB before upload' }, 413);
       }
 
+      // Crop-aware reference list to anchor the model's diagnosis space.
+      // Rice and corn have very different pest/disease/deficiency profiles in
+      // the Philippines and a generic prompt was producing rice-tilted answers
+      // for corn photos.
+      const cropContext = /corn/i.test(cropType)
+        ? `Common Cagayan-Valley corn issues to consider:
+  - Pests: Fall armyworm (Spodoptera frugiperda — windowing/whorl damage), corn borer, corn earworm, cutworm, leafhoppers, rats.
+  - Diseases: Southern corn rust (orange pustules), common rust (brick-red pustules), bacterial leaf streak, downy mildew (chlorotic stripes, white fluff under leaves), Stewart's wilt, ear rot (Fusarium/Aspergillus — pink or olive mold on cob).
+  - Deficiencies: N (pale lower leaves V-shaped yellowing), P (purpling on young leaves), K (marginal scorch on older leaves), Zn (white bud / interveinal chlorosis on upper leaves).
+  - Stages: VE→V6→V12→VT (tasseling)→R1 (silking)→R3 (milk)→R5 (dent)→R6 (black layer/harvest).
+  - Distinguish corn problems from rice — for example, leaf damage in corn is NOT tungro virus, leaf folder, or hopper burn (those are rice).`
+        : `Common Cagayan-Valley rice issues to consider:
+  - Pests: Rice black bug, brown planthopper (hopperburn), green leafhopper (tungro vector), stem borer (deadheart/whitehead), rice bug, leaf folder, rats, golden apple snail.
+  - Diseases: Tungro (yellow-orange leaf, stunted), bacterial leaf blight (water-soaked → straw colored streaks), bacterial leaf streak, sheath blight, blast (diamond lesions on leaves, neck blast on panicles), false smut (yellow→olive smut balls on grains), brown spot (Helminthosporium, brown lesions).
+  - Deficiencies: N (overall pale yellow-green), P (dark green→bronze, stunted), K (marginal scorch on older leaves, lodging), Zn (bronzing).
+  - Stages: Seedbed → transplant → tiller → panicle initiation (PI) → booting → flowering → milk → dough → mature.
+  - Distinguish rice problems from corn — leaf damage on rice is NOT fall armyworm, southern rust, or downy mildew (those are corn).`;
+
       const prompt = `You are an agricultural advisor for a Philippine farmer in Cagayan Valley (Region 2). The farmer's supervisor just took this photo at an area called "${areaName}" planted with ${cropType}.${notes ? ` Supervisor notes: "${notes}".` : ''}
+
+${cropContext}
 
 Look at the image and tell me:
 1. What you see (plant part, growth stage, visible symptoms or organisms)

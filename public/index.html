@@ -854,6 +854,32 @@ function parseAmountToKg(amountStr) {
   return num; // assume kg
 }
 
+// Sum the planned ₱ cost of every fertilizer input in a schedule, using the
+// given ₱/kg price map. Returns { totalCost, costed, missing } so callers can
+// say "X% of inputs priced" and warn if prices are missing. Used by:
+//   • Alt-fert savings preview (compare default schedule cost vs alt-fert cost)
+//   • Per-field batch optimizer (sum planned spend next 14 days across areas)
+function planSchedCost(sched, pricesPerKg) {
+  const prices = pricesPerKg || {};
+  let totalCost = 0;
+  let costedKg = 0;
+  const missing = new Set();
+  (sched.tasks || []).forEach(t => {
+    if (!Array.isArray(t.inputs)) return;
+    t.inputs.forEach(inp => {
+      const item = inp.item;
+      if (!item || item === 'Seed' || item === 'Herbicide' || item === 'Fungicide') return;
+      const kg = parseAmountToKg(inp.amount);
+      if (kg <= 0) return;
+      const ppk = prices[item];
+      if (ppk == null || isNaN(ppk) || ppk <= 0) { missing.add(item); return; }
+      totalCost += kg * ppk;
+      costedKg += kg;
+    });
+  });
+  return { totalCost, costedKg, missing: [...missing] };
+}
+
 
 // ============================================================
 // CONSTANTS
@@ -2926,6 +2952,48 @@ function NpkTracker({ areaTasks, ha, mobile, fertilizerPrices, setFertilizerPric
         {stats.breakdown.length === 0 && (
           <div style={{ marginTop:6, fontSize:11, color:"#999" }}>No completed fertilizer tasks yet. Mark tasks ✓ as you apply fertilizer to see this update.</div>
         )}
+        {/* Live fertilizer spend — uses manual prices from Inventory→Fert Prices. */}
+        {stats.breakdown.length > 0 && (() => {
+          const priceFor = (item) => {
+            const rec = (fertilizerPrices || {})[item];
+            if (!rec) return null;
+            const v = rec.pricePerKg != null ? Number(rec.pricePerKg)
+                    : rec.pricePerBag != null ? Number(rec.pricePerBag) / 50
+                    : null;
+            return (v != null && !isNaN(v) && v > 0) ? v : null;
+          };
+          let totalCost = 0;
+          let pricedKg = 0;
+          let unpriced = [];
+          stats.breakdown.forEach(b => {
+            const ppk = priceFor(b.item);
+            if (ppk != null) { totalCost += b.kg * ppk; pricedKg += b.kg; }
+            else if (b.item !== 'FAA') unpriced.push(b.item);
+          });
+          const uniqueUnpriced = [...new Set(unpriced)];
+          const perHa = ha > 0 ? totalCost / ha : 0;
+          return (
+            <div style={{ marginTop:10, padding:"10px 12px", background:"#fff3e0", borderRadius:10, borderLeft:"4px solid #ef6c00" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", flexWrap:"wrap", gap:8 }}>
+                <span style={{ fontSize:12, fontWeight:700, color:"#5d4037" }}>💰 Fertilizer spent (at current prices)</span>
+                <span style={{ fontSize:16, fontWeight:800, color:"#e65100" }}>
+                  {totalCost > 0 ? `₱${Math.round(totalCost).toLocaleString()}` : '—'}
+                  {totalCost > 0 && ha > 0 && <span style={{ fontSize:11, color:"#888", fontWeight:600, marginLeft:6 }}>(₱{Math.round(perHa).toLocaleString()}/ha)</span>}
+                </span>
+              </div>
+              {uniqueUnpriced.length > 0 && (
+                <div style={{ fontSize:10, color:"#c62828", marginTop:4 }}>
+                  Missing prices for: {uniqueUnpriced.join(', ')} — add them under Inventory → Fert Prices to include in the total.
+                </div>
+              )}
+              {totalCost === 0 && (
+                <div style={{ fontSize:10, color:"#888", marginTop:4 }}>
+                  No prices entered yet. Open Inventory → Fert Prices to enter ₱/bag for each product.
+                </div>
+              )}
+            </div>
+          );
+        })()}
         <details style={{ marginTop:12 }}>
           <summary style={{ cursor:"pointer", fontSize:12, color:"#f9a825", fontWeight:700 }}>💡 Fertilizer not available? Get a substitute</summary>
           <div style={{ marginTop:10 }}>
@@ -3296,24 +3364,32 @@ function AreasManager({ areas, setAreas, schedules, breeds, taskMeta, setTaskMet
               <label style={labelStyle}>Area (ha)
                 <input type="number" value={a.ha || ""} onChange={e => updateArea(a.id, "ha", e.target.value)} style={{ ...inputStyle, fontWeight:700, color:"#1565c0", background:"#e3f2fd" }} />
               </label>
-              <label style={labelStyle}>{a.plantingMethod && a.plantingMethod !== "transplanting" ? "Seeding Date" : "Transplant Date"}
+              <label style={labelStyle}>{
+                (a.crop || 'rice') === 'corn' ? "Planting Date" :
+                (a.plantingMethod && a.plantingMethod !== "transplanting") ? "Seeding Date" :
+                "Transplant Date"
+              }
                 <input type="date" value={a.transplantDate || ""} onChange={e => updateArea(a.id, "transplantDate", e.target.value)} style={{ ...inputStyle, fontWeight:700, color:"#1565c0", background:"#e3f2fd" }} />
               </label>
-              <label style={labelStyle}>Planting Method
-                <select value={a.plantingMethod || "transplanting"} onChange={e => updateArea(a.id, "plantingMethod", e.target.value)} style={{ ...inputStyle, fontWeight:700, color:"#5d4037", background:"#fff8e1" }}>
-                  <option value="transplanting">Transplanted (TPR)</option>
-                  <option value="wet-direct">Wet Direct-Seeded (broadcast)</option>
-                  <option value="dry-direct">Dry Direct-Seeded (drum/drill)</option>
-                </select>
-                <span style={{ fontSize:10, color:"#888", marginTop:2 }}>
-                  {(() => {
-                    const m = a.plantingMethod || "transplanting";
-                    if (m === "transplanting") return "Seedbed prep + transplanting tasks included. Day-zero = transplant date.";
-                    if (m === "wet-direct") return "Skips seedbed; field is puddled then seed broadcast. Day-zero = seeding date.";
-                    return "Skips seedbed; seed dropped on dry/moist soil with drum/drill. Day-zero = seeding date.";
-                  })()}
-                </span>
-              </label>
+              {/* Planting method is rice-specific. Corn is always direct-seeded
+                  (drill/hill); hiding the dropdown avoids confusing options. */}
+              {(a.crop || 'rice') === 'rice' && (
+                <label style={labelStyle}>Planting Method
+                  <select value={a.plantingMethod || "transplanting"} onChange={e => updateArea(a.id, "plantingMethod", e.target.value)} style={{ ...inputStyle, fontWeight:700, color:"#5d4037", background:"#fff8e1" }}>
+                    <option value="transplanting">Transplanted (TPR)</option>
+                    <option value="wet-direct">Wet Direct-Seeded (broadcast)</option>
+                    <option value="dry-direct">Dry Direct-Seeded (drum/drill)</option>
+                  </select>
+                  <span style={{ fontSize:10, color:"#888", marginTop:2 }}>
+                    {(() => {
+                      const m = a.plantingMethod || "transplanting";
+                      if (m === "transplanting") return "Seedbed prep + transplanting tasks included. Day-zero = transplant date.";
+                      if (m === "wet-direct") return "Skips seedbed; field is puddled then seed broadcast. Day-zero = seeding date.";
+                      return "Skips seedbed; seed dropped on dry/moist soil with drum/drill. Day-zero = seeding date.";
+                    })()}
+                  </span>
+                </label>
+              )}
               <label style={labelStyle}>Breed
                 <select value={a.breed} onChange={e => {
                   const breedName = e.target.value;
@@ -4235,25 +4311,33 @@ function predictUnitCost(item, asOfDate, purchases, overrides) {
 }
 
 // Labor heuristic with user-overridable worker-days per pattern.
-// Default heuristics from PhilRice budget guides.
+// Default heuristics from PhilRice / DA-BPI budget guides.
 const LABOR_HEURISTIC_DEFAULTS = {
-  transplant: 8,    // worker-days per ha
-  harvest:    6,
-  spray:      1,
-  fertilizer: 1,
-  landprep:   0.5,
-  irrigation: 0.3,
-  weed:       3,
-  other:      0.5,
+  transplant:  8,    // worker-days per ha (rice manual transplant)
+  plant_corn:  2,    // corn drill/hill planting — much less than rice transplant
+  side_dress:  1.5,  // corn side-dress with hilling — slightly higher than basal
+  harvest:     6,
+  spray:       1,
+  fertilizer:  1,
+  landprep:    0.5,
+  irrigation:  0.3,
+  weed:        3,
+  cultivation: 3,    // corn inter-row cultivation = weeding equivalent
+  other:       0.5,
 };
 function classifyTaskForLabor(task) {
   const a = task.activity || '';
   const phase = task.phase || '';
+  // Corn-specific patterns first (more specific than rice equivalents)
+  if (/inter.?row cultivation|hilling/i.test(a)) return 'cultivation';
+  if (/side.?dress/i.test(a)) return 'side_dress';
+  if (/^planting/i.test(a)) return 'plant_corn';  // matches "Planting (drill or hill...)" but not "Pre-Planting"
+  // Rice + generic patterns
   if (/transplant|seedling pulling|sowing|direct seed/i.test(a)) return 'transplant';
   if (/harvest/i.test(a)) return 'harvest';
   if (/spray|fungicide|herbicide|insecticide/i.test(a)) return 'spray';
   if (/fertilizer|n[123]k[123]|basal|top.?dress|k applic|fert/i.test(a)) return 'fertilizer';
-  if (/rotavate|harrow|land prep|plough|plow/i.test(a)) return 'landprep';
+  if (/rotavate|harrow|land prep|plough|plow|furrow/i.test(a)) return 'landprep';
   if (/irrigat|water|dike/i.test(a)) return 'irrigation';
   if (/weed/i.test(a)) return 'weed';
   if (phase === "Growth Stage") return null; // no labor
@@ -5104,7 +5188,7 @@ function printProtocolSheet(rows, sched, areaName, areaData) {
   <div>Supervisor: <strong>${esc(supervisor)}</strong></div>
   <div>Breed: <strong>${esc(breed)}</strong></div>
   <div>Season: <strong>${esc(season)}</strong></div>
-  <div>Sowing: <strong>${esc(fmtD(sched.sowingDate))}</strong></div>
+  <div>${sched.crop === 'corn' ? 'Planted' : 'Sowing'}: <strong>${esc(fmtD(sched.sowingDate))}</strong></div>
   <div>Harvest: <strong>${esc(fmtD(sched.harvestDate))}</strong></div>
 </div>
 <table>
@@ -5248,12 +5332,19 @@ function ProtocolDetail({ sched, mobile, areaName, areaData, taskMeta, setTaskMe
     if (!confirm("Hide this task from the protocol? You can restore it from the row's ⋯ menu.")) return;
     setOverride(id, { _protocolHidden: true });
   };
+  // Tail-after-prefix is the task id; reject keys whose tail contains a dash
+  // (those belong to a different area whose name happens to have us as prefix).
+  const tailIsOurTaskId = (k) => {
+    if (!k.startsWith(`${areaName}-`)) return false;
+    return !k.slice(areaName.length + 1).includes('-');
+  };
+
   const showHiddenTasks = () => {
     // Find any meta entry with _protocolHidden for this area and clear it
     if (!taskMeta) return;
     const updates = {};
     Object.entries(taskMeta).forEach(([k, v]) => {
-      if (k.startsWith(`${areaName}-`) && v && v._protocolHidden) {
+      if (tailIsOurTaskId(k) && v && v._protocolHidden) {
         updates[k] = { ...v, _protocolHidden: false };
       }
     });
@@ -5264,7 +5355,7 @@ function ProtocolDetail({ sched, mobile, areaName, areaData, taskMeta, setTaskMe
   // Count of hidden tasks (for the "show hidden" button label)
   const hiddenCount = useMemo(() => {
     if (!taskMeta) return 0;
-    return Object.entries(taskMeta).filter(([k, v]) => k.startsWith(`${areaName}-`) && v && v._protocolHidden).length;
+    return Object.entries(taskMeta).filter(([k, v]) => tailIsOurTaskId(k) && v && v._protocolHidden).length;
   }, [taskMeta, areaName]);
 
   // ---- Add custom step ----
@@ -5347,6 +5438,39 @@ function ProtocolDetail({ sched, mobile, areaName, areaData, taskMeta, setTaskMe
         <strong>{sched.protocolName || (sched.crop === 'corn' ? "Corn Standard (Hybrid)" : "Default rice protocol")}</strong>
         {sched.altFertNote && <span style={{ marginLeft:8, color:"#ef6c00" }}>· {sched.altFertNote}</span>}
       </div>
+
+      {/* Alt-fert savings preview — only show when prices are available + we're
+          on the default protocol so user knows what they'd save by switching. */}
+      {(() => {
+        const isAltAlready = /alt-fert/.test(areaData?.protocol || '');
+        const isCorn = (areaData?.crop || 'rice') === 'corn';
+        if (isAltAlready) return null;
+        // Build the alt-fert version of the same area parameters
+        const pricesPerKg = {};
+        Object.entries(fertilizerPrices || {}).forEach(([k, rec]) => {
+          if (!rec) return;
+          const v = rec.pricePerKg != null ? Number(rec.pricePerKg)
+                  : rec.pricePerBag != null ? Number(rec.pricePerBag) / 50 : null;
+          if (v != null && !isNaN(v) && v > 0) pricesPerKg[k] = v;
+        });
+        if (Object.keys(pricesPerKg).length === 0) return null;
+        const altSched = isCorn
+          ? computeCornAltFertSchedule(areaData.ha, areaData.transplantDate, areaData.maturity, areaData.plantingMethod, pricesPerKg)
+          : computeRiceAltFertSchedule(areaData.ha, areaData.transplantDate, areaData.maturity, areaData.plantingMethod, pricesPerKg);
+        const cur = planSchedCost(sched, pricesPerKg);
+        const alt = planSchedCost(altSched, pricesPerKg);
+        const savings = cur.totalCost - alt.totalCost;
+        if (cur.totalCost === 0 || alt.totalCost === 0) return null;
+        const pct = (savings / cur.totalCost) * 100;
+        if (Math.abs(savings) < 50) return null; // ignore noise
+        const positive = savings > 0;
+        return (
+          <div style={{ marginBottom:10, padding:"10px 12px", background: positive ? "#e8f5e9" : "#fff3e0", borderLeft: `4px solid ${positive ? "#2e7d32" : "#ef6c00"}`, borderRadius:8, fontSize:12, color: positive ? "#1b5e20" : "#5d4037" }}>
+            <strong>{positive ? "💰 Switching to Alt-Fertilizer would save" : "⚠ Alt-Fertilizer is currently more expensive by"} ₱{Math.abs(Math.round(savings)).toLocaleString()}</strong> this cycle ({pct.toFixed(0)}% {positive ? 'less' : 'more'}). Default ₱{Math.round(cur.totalCost).toLocaleString()} vs Alt-Fert ₱{Math.round(alt.totalCost).toLocaleString()}.
+            {cur.missing.length > 0 && <span style={{ fontSize:10, color:"#c62828", marginLeft:6 }}>(prices missing for: {cur.missing.join(', ')})</span>}
+          </div>
+        );
+      })()}
 
       {/* Add custom step form */}
       {showAddStep && (
@@ -6588,6 +6712,57 @@ const ADVISORY_RULES = [
     return advisories;
   },
 
+  // C1b: Cheapest-N source switch — if a non-alt-fert area would save ≥₱2000
+  // by switching its urea applications to 21-0-0 or 25-0-0 (based on the
+  // owner's manually-entered prices), surface a card.
+  function altFertSavings({ areas, fertilizerPrices }) {
+    if (!fertilizerPrices) return null;
+    const pricesPerKg = {};
+    Object.entries(fertilizerPrices).forEach(([k, rec]) => {
+      if (!rec) return;
+      const v = rec.pricePerKg != null ? Number(rec.pricePerKg)
+              : rec.pricePerBag != null ? Number(rec.pricePerBag) / 50 : null;
+      if (v != null && !isNaN(v) && v > 0) pricesPerKg[k] = v;
+    });
+    if (Object.keys(pricesPerKg).length < 2) return null;
+    const eligible = (areas || []).filter(a =>
+      a.status === 'Active' && a.name && a.transplantDate && a.maturity && a.ha &&
+      !/alt-fert/.test(a.protocol || '')
+    );
+    if (eligible.length === 0) return null;
+
+    const advisories = [];
+    eligible.forEach(area => {
+      try {
+        const isCorn = (area.crop || 'rice') === 'corn';
+        const defaultSched = isCorn
+          ? computeCornStandardSchedule(area.ha, area.transplantDate, area.maturity, area.plantingMethod)
+          : (area.protocol === 'kadanny'
+              ? computeKaDannyBolosSchedule(area.ha, area.transplantDate, area.maturity, area.plantingMethod)
+              : computeSchedule(area.ha, area.transplantDate, area.maturity, area.plantingMethod));
+        const altSched = isCorn
+          ? computeCornAltFertSchedule(area.ha, area.transplantDate, area.maturity, area.plantingMethod, pricesPerKg)
+          : computeRiceAltFertSchedule(area.ha, area.transplantDate, area.maturity, area.plantingMethod, pricesPerKg);
+        const cur = planSchedCost(defaultSched, pricesPerKg);
+        const alt = planSchedCost(altSched, pricesPerKg);
+        if (cur.totalCost === 0 || alt.totalCost === 0) return;
+        const savings = cur.totalCost - alt.totalCost;
+        if (savings < 2000) return; // ignore small wins
+        advisories.push({
+          id: 'alt-fert-' + area.id,
+          category: 'cost', severity: savings > 10000 ? 'high' : 'medium',
+          title: `Switch ${area.name} to Alt-Fertilizer protocol — save ₱${Math.round(savings).toLocaleString()}`,
+          detail: `Based on your current fertilizer prices, the standard protocol for ${area.name} (${area.ha} ha) would cost ₱${Math.round(cur.totalCost).toLocaleString()} in inputs this cycle. The Alt-Fertilizer protocol delivers the same N-P-K with cheaper N-source splits (16-20-0 + 0-0-60 instead of 14-14-14 basal, and ${altSched.altFertNote || 'cheaper urea alternative'}) for ₱${Math.round(alt.totalCost).toLocaleString()}. To apply: open Areas → ${area.name} → set Protocol to "${isCorn ? 'Corn' : 'Rice'} Alt-Fertilizer".`,
+          pesoImpact: Math.round(savings),
+          horizon: 'Current cycle',
+          link: 'areas',
+          evidence: [`Default schedule: ₱${Math.round(cur.totalCost).toLocaleString()}`, `Alt-fert schedule: ₱${Math.round(alt.totalCost).toLocaleString()}`, altSched.altFertNote || ''].filter(Boolean),
+        });
+      } catch (e) { /* skip this area */ }
+    });
+    return advisories;
+  },
+
   // C2: AWD irrigation savings (only if any area currently on default flooded protocol AND no AWD tasks done)
   function awdSavings({ areas, allTasks }) {
     const flooded = (areas || []).filter(a => a.status === 'Active' && a.protocol !== 'kadanny' && !(a.plantingMethod || '').includes('direct'));
@@ -7060,8 +7235,9 @@ function AdvisorTab({
 
   const advisories = useMemo(() => runAdvisoryRules({
     purchases, harvestLogs, laborLogs, supervisors, areas, schedules, breeds, allTasks, diagnoses, priceLog, nfaFloor, inventoryAlerts,
+    fertilizerPrices,
     settings: cashflowSettings, cashflowForecast: cf,
-  }), [purchases, harvestLogs, laborLogs, supervisors, areas, schedules, breeds, allTasks, diagnoses, priceLog, nfaFloor, inventoryAlerts, cashflowSettings, cf]);
+  }), [purchases, harvestLogs, laborLogs, supervisors, areas, schedules, breeds, allTasks, diagnoses, priceLog, nfaFloor, inventoryAlerts, fertilizerPrices, cashflowSettings, cf]);
 
   const filtered = advisories.filter(a => categoryFilter === 'all' || a.category === categoryFilter).filter(a => !dismissed[a.id]);
   const totalImpact = filtered.reduce((s, a) => s + (a.pesoImpact || 0), 0);
@@ -7859,10 +8035,54 @@ const DEFAULT_INVENTORY_ITEMS = [
 //   • The C1 cost-spike rule (cross-checks last purchase ₱ vs manual price)
 // Auto-suggests starting prices from the user's most recent purchase per item
 // so the user doesn't have to type from scratch.
-function FertilizerPricesPanel({ fertilizerPrices, setFertilizerPrices, purchases, mobile }) {
+// Tiny SVG sparkline — last 12 price points, newest on the right.
+function PriceSparkline({ history, width = 80, height = 24 }) {
+  if (!history || history.length < 2) {
+    return <span style={{ fontSize:10, color:"#bbb" }}>—</span>;
+  }
+  // history is newest-first; we want oldest-first for left→right rendering.
+  const series = [...history].reverse().map(h => h.pricePerBag);
+  const min = Math.min(...series), max = Math.max(...series);
+  const range = (max - min) || 1;
+  const pts = series.map((v, i) => {
+    const x = (i / (series.length - 1)) * width;
+    const y = height - ((v - min) / range) * height;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const last = series[series.length - 1], first = series[0];
+  const trendUp = last > first;
+  const color = trendUp ? "#c62828" : "#2e7d32";
+  return (
+    <svg width={width} height={height} style={{ verticalAlign:"middle" }}>
+      <polyline fill="none" stroke={color} strokeWidth="1.5" points={pts} />
+      <circle cx={width} cy={height - ((last - min) / range) * height} r="2" fill={color} />
+    </svg>
+  );
+}
+
+function FertilizerPricesPanel({ fertilizerPrices, setFertilizerPrices, fertilizerPriceHistory, setFertilizerPriceHistory, purchases, mobile }) {
   // Products we accept prices for. Matches FERT_DB keys + FAA.
   const PRICED_ITEMS = ["14-14-14","16-20-0","17-0-17","18-46-0","0-46-0","21-0-0","25-0-0","46-0-0","0-0-60","0-0-50","1-6-16-8","FAA"];
   const today = new Date().toISOString().slice(0, 10);
+
+  // Append a snapshot to history (idempotent per day — replaces today's entry
+  // instead of stacking duplicates if you edit twice).
+  const snapshot = (item, pricePerBag) => {
+    if (!setFertilizerPriceHistory) return;
+    setFertilizerPriceHistory(prev => {
+      const next = { ...(prev || {}) };
+      const arr = [...((prev || {})[item] || [])];
+      // Replace today's entry if it exists
+      const todayIdx = arr.findIndex(h => h.date === today);
+      const entry = { date: today, pricePerBag: Math.round(pricePerBag) };
+      if (todayIdx >= 0) arr[todayIdx] = entry;
+      else arr.unshift(entry);
+      // Keep newest-first, cap at 12 entries
+      arr.sort((a, b) => b.date.localeCompare(a.date));
+      next[item] = arr.slice(0, 12);
+      return next;
+    });
+  };
 
   // Last purchase ₱/bag per item (for the "use last purchase" suggestion).
   const lastPurchase = useMemo(() => {
@@ -7894,6 +8114,12 @@ function FertilizerPricesPanel({ fertilizerPrices, setFertilizerPrices, purchase
       next[item] = rec;
       return next;
     });
+    // Auto-snapshot to history if we have a positive number
+    const v = Number(value);
+    if (!isNaN(v) && v > 0) {
+      const ppb = field === 'pricePerKg' ? v * 50 : v;
+      snapshot(item, ppb);
+    }
   };
 
   const useLastPurchase = (item) => {
@@ -7910,6 +8136,7 @@ function FertilizerPricesPanel({ fertilizerPrices, setFertilizerPrices, purchase
       };
       return next;
     });
+    snapshot(item, lp.pricePerBag);
   };
 
   const clearAll = () => {
@@ -7945,7 +8172,7 @@ function FertilizerPricesPanel({ fertilizerPrices, setFertilizerPrices, purchase
       <div style={{ background:"white", borderRadius:14, boxShadow:"0 1px 4px rgba(0,0,0,.06)", overflowX:"auto" }}>
         <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
           <thead><tr style={{ background:"#fff8e1" }}>
-            {["Product","₱/bag (50kg)","₱/kg","₱/kg of dominant nutrient","Updated","Source","Last purchase"].map(h => (
+            {["Product","₱/bag (50kg)","₱/kg","₱/kg of dominant nutrient","Trend (12 entries)","Updated","Source","Last purchase"].map(h => (
               <th key={h} style={{ padding:"10px 8px", textAlign:"left", fontWeight:700, color:"#5d4037", borderBottom:"2px solid #ffe082", fontSize:11 }}>{h}</th>
             ))}
           </tr></thead>
@@ -7987,6 +8214,24 @@ function FertilizerPricesPanel({ fertilizerPrices, setFertilizerPrices, purchase
                     {pesoPerKgNutrient != null
                       ? `₱${pesoPerKgNutrient.toFixed(2)}/kg-${domLabel}`
                       : dominant > 0 ? '—' : 'n/a'}
+                  </td>
+                  <td style={{ padding:"8px" }}>
+                    {(() => {
+                      const hist = (fertilizerPriceHistory || {})[item] || [];
+                      if (hist.length < 2) return <span style={{ fontSize:10, color:"#bbb" }}>—</span>;
+                      const newest = hist[0].pricePerBag;
+                      const oldest = hist[hist.length - 1].pricePerBag;
+                      const delta = newest - oldest;
+                      const pct = oldest > 0 ? (delta / oldest * 100) : 0;
+                      return (
+                        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                          <PriceSparkline history={hist} />
+                          <span title={`${hist.length} entries, oldest ${hist[hist.length-1].date}`} style={{ fontSize:10, color: delta > 0 ? "#c62828" : delta < 0 ? "#2e7d32" : "#888", fontWeight:700 }}>
+                            {delta > 0 ? '↑' : delta < 0 ? '↓' : '→'} {Math.abs(pct).toFixed(0)}%
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td style={{ padding:"8px", color:"#888", fontSize:11 }}>{rec.dateUpdated || '—'}</td>
                   <td style={{ padding:"8px", color:"#888", fontSize:11 }}>{rec.source || (rec.pricePerBag ? 'manual' : '—')}</td>
@@ -8038,7 +8283,116 @@ function FertilizerPricesPanel({ fertilizerPrices, setFertilizerPrices, purchase
   );
 }
 
-function InventoryTracker({ purchases, setPurchases, usages, setUsages, areas, allTasks, inventoryItems, setInventoryItems, fertilizerPrices, setFertilizerPrices }) {
+// ============================================================
+// UPCOMING FERTILIZER NEEDS (14-day batch buy list)
+// ============================================================
+// Walks every active area's task list, finds fertilizer tasks scheduled
+// within the next 14 days, and groups by product so the owner sees one
+// consolidated "buy this much before next Friday" list. Cross-references
+// current stock + price to estimate what's still needed and the ₱ cost.
+function UpcomingFertilizerNeeds({ areas, allTasks, stockMap, fertilizerPrices, mobile }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const fortnight = new Date(); fortnight.setDate(fortnight.getDate() + 14);
+  const cutoff = fortnight.toISOString().slice(0, 10);
+
+  // Build a list of (item, kg, area, task, date) rows
+  const needs = useMemo(() => {
+    const rows = [];
+    (allTasks || []).forEach(t => {
+      if (!Array.isArray(t.inputs)) return;
+      const d = t.planStart || t.planEnd;
+      if (!d || d < today || d > cutoff) return;
+      if (t.status === 'Completed' || t.status === 'Done' || t.status === 'Skipped' || t.status === 'Cancelled') return;
+      t.inputs.forEach(inp => {
+        if (!inp.item || inp.item === 'Seed' || inp.item === 'Herbicide' || inp.item === 'Fungicide') return;
+        const kg = parseAmountToKg(inp.amount);
+        if (kg <= 0) return;
+        rows.push({ item: inp.item, kg, area: t.area, task: t.activity, date: d });
+      });
+    });
+    return rows;
+  }, [allTasks, today, cutoff]);
+
+  if (needs.length === 0) {
+    return null; // Don't render if nothing upcoming
+  }
+
+  // Group by item
+  const byItem = {};
+  needs.forEach(r => {
+    if (!byItem[r.item]) byItem[r.item] = { totalKg: 0, areas: new Set(), events: [] };
+    byItem[r.item].totalKg += r.kg;
+    byItem[r.item].areas.add(r.area);
+    byItem[r.item].events.push(r);
+  });
+
+  const priceFor = (item) => {
+    const rec = (fertilizerPrices || {})[item];
+    if (!rec) return null;
+    const v = rec.pricePerKg != null ? Number(rec.pricePerKg)
+            : rec.pricePerBag != null ? Number(rec.pricePerBag) / 50 : null;
+    return (v != null && !isNaN(v) && v > 0) ? v : null;
+  };
+
+  const rows = Object.entries(byItem).map(([item, v]) => {
+    const onHand = (stockMap[item]?.purchased || 0) - (stockMap[item]?.manualUsed || 0) - (stockMap[item]?.taskUsed || 0);
+    const shortKg = Math.max(0, v.totalKg - Math.max(0, onHand));
+    const ppk = priceFor(item);
+    const purchaseCost = ppk != null ? shortKg * ppk : null;
+    return { item, ...v, onHand: Math.max(0, onHand), shortKg, ppk, purchaseCost };
+  }).sort((a, b) => b.totalKg - a.totalKg);
+
+  const totalPurchaseCost = rows.reduce((s, r) => s + (r.purchaseCost || 0), 0);
+  const anyPriced = rows.some(r => r.ppk != null);
+
+  return (
+    <div style={{ background:"linear-gradient(135deg,#e8f5e9,#fff8e1)", borderRadius:14, padding: mobile ? 14 : 18, borderLeft:"4px solid #2e7d32" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:10, gap:8, flexWrap:"wrap" }}>
+        <div style={{ fontWeight:800, fontSize:14, color:"#1b5e20" }}>🛒 Next 14 days · consolidated fertilizer shopping list</div>
+        {anyPriced && totalPurchaseCost > 0 && (
+          <div style={{ fontSize:13, fontWeight:800, color:"#1b5e20" }}>
+            Need to buy: ₱{Math.round(totalPurchaseCost).toLocaleString()}
+          </div>
+        )}
+      </div>
+      <div style={{ fontSize:11, color:"#555", marginBottom:10 }}>
+        Groups scheduled fertilizer tasks across all your active areas so you can buy in one trip. Existing on-hand stock is subtracted from the total needed.
+      </div>
+      <table style={{ width:"100%", borderCollapse:"collapse", fontSize: mobile ? 11 : 12 }}>
+        <thead><tr style={{ background:"rgba(255,255,255,0.6)" }}>
+          {["Product","Total needed","On hand","Need to buy","₱ to buy","Areas","First due"].map(h => (
+            <th key={h} style={{ padding:"7px 8px", textAlign:"left", fontWeight:700, color:"#1b5e20", borderBottom:"1px solid #c8e6c9", fontSize:11 }}>{h}</th>
+          ))}
+        </tr></thead>
+        <tbody>{rows.map(r => {
+          const firstDue = [...r.events].sort((a, b) => a.date.localeCompare(b.date))[0]?.date;
+          return (
+            <tr key={r.item} style={{ borderBottom:"1px solid rgba(0,0,0,0.05)", background: r.shortKg > 0 ? "rgba(255,224,178,0.3)" : "transparent" }}>
+              <td style={{ padding:"6px 8px", fontWeight:700, color:"#5d4037" }}>{r.item}</td>
+              <td style={{ padding:"6px 8px" }}>{Math.round(r.totalKg)} kg <span style={{ color:"#888", fontSize:10 }}>({(r.totalKg/50).toFixed(1)} bags)</span></td>
+              <td style={{ padding:"6px 8px", color: r.onHand >= r.totalKg ? "#2e7d32" : r.onHand > 0 ? "#ef6c00" : "#c62828" }}>{Math.round(r.onHand)} kg</td>
+              <td style={{ padding:"6px 8px", fontWeight:800, color: r.shortKg > 0 ? "#c62828" : "#2e7d32" }}>
+                {r.shortKg > 0 ? `${Math.round(r.shortKg)} kg (${Math.ceil(r.shortKg/50)} bags)` : "—"}
+              </td>
+              <td style={{ padding:"6px 8px", fontWeight:700, color:"#1b5e20" }}>
+                {r.purchaseCost != null ? `₱${Math.round(r.purchaseCost).toLocaleString()}` : <span style={{ color:"#bbb", fontWeight:400 }}>no price</span>}
+              </td>
+              <td style={{ padding:"6px 8px", fontSize:11, color:"#555" }}>{[...r.areas].join(', ')}</td>
+              <td style={{ padding:"6px 8px", fontSize:11, color:"#888" }}>{firstDue ? fmtDate(firstDue).replace(/, \d{4}$/, "") : "—"}</td>
+            </tr>
+          );
+        })}</tbody>
+      </table>
+      {!anyPriced && (
+        <div style={{ fontSize:10, color:"#888", marginTop:8 }}>
+          Add fertilizer prices under the <strong>Fert Prices</strong> sub-tab to see ₱ totals.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InventoryTracker({ purchases, setPurchases, usages, setUsages, areas, allTasks, inventoryItems, setInventoryItems, fertilizerPrices, setFertilizerPrices, fertilizerPriceHistory, setFertilizerPriceHistory }) {
   const mobile = useIsMobile();
   const [showAddPurchase, setShowAddPurchase] = useState(false);
   const [showAddUsage, setShowAddUsage] = useState(false);
@@ -8181,6 +8535,8 @@ function InventoryTracker({ purchases, setPurchases, usages, setUsages, areas, a
       {/* STOCK LEVELS */}
       {viewTab === "stock" && (
         <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          {/* Upcoming 14-day fertilizer needs — groups across all areas */}
+          <UpcomingFertilizerNeeds areas={areas} allTasks={allTasks} stockMap={stockMap} fertilizerPrices={fertilizerPrices} mobile={mobile} />
           {shortItems.length > 0 && (
             <div style={{ background:"#ffebee", border:"1px solid #ef9a9a", borderLeft:"4px solid #c62828", borderRadius:8, padding:"12px 14px", fontSize:12, color:"#b71c1c", lineHeight:1.5 }}>
               <strong>⚠ Inventory shortage on {shortItems.length} item{shortItems.length === 1 ? '' : 's'}:</strong>{" "}
@@ -8469,6 +8825,8 @@ function InventoryTracker({ purchases, setPurchases, usages, setUsages, areas, a
         <FertilizerPricesPanel
           fertilizerPrices={fertilizerPrices}
           setFertilizerPrices={setFertilizerPrices}
+          fertilizerPriceHistory={fertilizerPriceHistory}
+          setFertilizerPriceHistory={setFertilizerPriceHistory}
           purchases={purchases}
           mobile={mobile}
         />
@@ -12309,6 +12667,11 @@ function AppShell({ auth, mobile }) {
   // substitute calculator normalise to ₱/kg. These feed the *-alt-fert
   // protocols (cheapest N source picker) and the inline calculator pricing.
   const [fertilizerPrices, setFertilizerPrices] = useSyncedState("rfops-fertilizerPrices", {});
+  // Append-only price history. Shape:
+  //   { "14-14-14": [{ date: "2026-05-25", pricePerBag: 1850 }, { date: "2026-05-12", pricePerBag: 1820 }, ...] }
+  // Sorted newest-first. Last 12 entries kept per item (~3 months at weekly cadence).
+  // Auto-appended whenever the user edits a price.
+  const [fertilizerPriceHistory, setFertilizerPriceHistory] = useSyncedState("rfops-fertilizerPriceHistory", {});
 
   // Abundance Farm state — also server-synced
   const [taskState, setTaskState] = useSyncedState("abundance-farm-tasks", {});
@@ -12376,10 +12739,18 @@ function AppShell({ auth, mobile }) {
         }
         // Apply per-task manual overrides (dates / item-qty swaps / hide) from
         // taskMeta. This runs after the protocol compute so overrides win.
+        // The taskMeta key format is `${areaName}-${id}` where id is always
+        // a number (or a number prefixed by 'c' for custom). To avoid the
+        // prefix-collision bug (area "Plot" picking up "Plot-2-305" keys),
+        // we validate the sliced tail is a clean numeric id and skip anything
+        // that contains another dash.
         const overridesForArea = {};
         Object.entries(taskMeta || {}).forEach(([k, v]) => {
           if (!k.startsWith(`${a.name}-`)) return;
           const tid = k.slice(a.name.length + 1);
+          // Skip keys whose tail contains a dash (e.g. "2-305") — they belong
+          // to an area whose name happens to have us as a prefix.
+          if (tid.includes('-')) return;
           overridesForArea[tid] = v;
         });
         sched.tasks = sched.tasks
@@ -12747,7 +13118,7 @@ function AppShell({ auth, mobile }) {
           openingCash={openingCash} recurringObligations={recurringObligations} cashflowSettings={cashflowSettings} forecastOverrides={forecastOverrides}
         />}
         {tab === "equipment" && <EquipmentTab equipment={equipment} setEquipment={setEquipment} maintenanceLogs={maintenanceLogs} setMaintenanceLogs={setMaintenanceLogs} fuelLogs={fuelLogs} setFuelLogs={setFuelLogs} toolInventory={toolInventory} setToolInventory={setToolInventory} />}
-        {tab === "inventory" && <InventoryTracker purchases={purchases} setPurchases={setPurchases} usages={usages} setUsages={setUsages} areas={areas} allTasks={allTasks} inventoryItems={inventoryItems} setInventoryItems={setInventoryItems} fertilizerPrices={fertilizerPrices} setFertilizerPrices={setFertilizerPrices} />}
+        {tab === "inventory" && <InventoryTracker purchases={purchases} setPurchases={setPurchases} usages={usages} setUsages={setUsages} areas={areas} allTasks={allTasks} inventoryItems={inventoryItems} setInventoryItems={setInventoryItems} fertilizerPrices={fertilizerPrices} setFertilizerPrices={setFertilizerPrices} fertilizerPriceHistory={fertilizerPriceHistory} setFertilizerPriceHistory={setFertilizerPriceHistory} />}
         {tab === "breeds" && <BreedManager breeds={breeds} setBreeds={setBreeds} />}
       </main>
     </div>
