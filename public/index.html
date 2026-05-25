@@ -13980,6 +13980,60 @@ const TABS = [
   { key:"cropguide",  label:"Crop Guide",  icon:"🌱", group:"abundance" },
 ];
 
+// ============================================================
+// NAV SECTIONS — 5-section structure organized around the natural farm cycle
+// ============================================================
+// Collapses the 16-tab horizontal nav into 5 sections that map to phases of
+// farm operation: see what's happening now → manage the field → procure
+// supplies → handle money → reference. Each section opens directly to its
+// first sub-tab; if a section has multiple sub-tabs they render as a
+// secondary nav row below the section row. Existing tab keys / state / deep
+// links are preserved — only the visual grouping changed.
+const NAV_SECTIONS = [
+  {
+    key: 'home',
+    label: 'Home',
+    icon: '🏠',
+    accent: '#2D4A2B',
+    tabs: ['today'],
+  },
+  {
+    key: 'field',
+    label: 'Field',
+    icon: '🌾',
+    accent: '#2D4A2B',
+    tabs: ['tasks', 'areas', 'breeds', 'weather', 'cropguide', 'calendar'],
+  },
+  {
+    key: 'inventory',
+    label: 'Inventory',
+    icon: '📦',
+    accent: '#C99B3F',
+    tabs: ['inventory', 'equipment'],
+  },
+  {
+    key: 'money',
+    label: 'Money',
+    icon: '₱',
+    accent: '#C4633F',
+    tabs: ['prices', 'accounting', 'cashflow', 'forecasts', 'advisor', 'dashboard'],
+  },
+  {
+    key: 'more',
+    label: 'More',
+    icon: '⋯',
+    accent: '#8B9684',
+    tabs: ['tips'],
+  },
+];
+
+// Lookup map: tab key → section key. Built once from NAV_SECTIONS so the
+// nav can highlight the right section when the user lands on any tab.
+const TAB_TO_SECTION = NAV_SECTIONS.reduce((acc, s) => {
+  s.tabs.forEach(t => { acc[t] = s.key; });
+  return acc;
+}, {});
+
 const DEFAULT_BREEDS = [
   { id:1, name:"RC 222", maturity:114, type:"Inbred", crop:"rice", millingRecovery:67, notes:"" },
 ];
@@ -14931,81 +14985,172 @@ function AppShell({ auth, mobile }) {
 
       <HelpOverlay open={helpOpen} onClose={() => setHelpOpen(false)} tabs={TABS} />
 
-      {/* Desktop: Top nav — horizontally scrollable */}
-      {!mobile && (
-        <nav className="ab-scroll" style={{ display:"flex", background: T.bgElev, borderBottom:`1px solid ${T.line}`, padding:"0 12px", overflowX:"auto", gap: 2 }}>
-          {TABS.map(t => {
-            const badge =
-              t.key === "inventory" ? inventoryAlerts.shortages.length :
-              t.key === "dashboard" ? inventoryAlerts.upcomingNeeds.filter(n => !n.sufficient).length :
-              t.key === "tasks"     ? (taskAlerts.overdue.length + taskAlerts.dueSoon.length) :
-              // Badge on Areas counts areas with at least one overdue task, not
-              // raw overdue-task count — the previous label was misleading
-              // (e.g. "Areas 5" with only 2 areas registered).
-              t.key === "areas"     ? new Set(taskAlerts.overdue.map(t => t.area)).size :
-              0;
-            const active = tab === t.key;
-            const accent = t.group === "abundance" ? T.rice : T.corn;
-            return (
-              <button key={t.key} onClick={() => setTab(t.key)} style={{
-                padding:"14px 16px", background:"none", border:"none",
-                borderBottom: active ? `3px solid ${accent}` : "3px solid transparent",
-                color: active ? accent : T.inkSoft,
-                fontFamily: T.fontBody, fontWeight: active ? 700 : 500, fontSize: 13,
-                cursor:"pointer", display:"flex", alignItems:"center", gap: 6,
-                whiteSpace:"nowrap", position:"relative", letterSpacing:"0.02em"
-              }}>
-                <span style={{ fontSize: 15 }}>{t.icon}</span>{t.label}
-                {badge > 0 && <span style={{ background: T.danger, color:"white", borderRadius: 10, padding:"1px 6px", fontSize: 9, fontWeight: 700, marginLeft: 4, lineHeight: "14px" }}>{badge}</span>}
-              </button>
-            );
-          })}
-        </nav>
-      )}
+      {/* Helper to compute badge count per tab — shared between desktop + mobile + section row */}
+      {(() => null)()}
+      {/* Desktop nav — primary section row + secondary sub-tab row */}
+      {!mobile && (() => {
+        const tabBadge = (k) =>
+          k === "inventory" ? inventoryAlerts.shortages.length :
+          k === "dashboard" ? inventoryAlerts.upcomingNeeds.filter(n => !n.sufficient).length :
+          k === "tasks"     ? (taskAlerts.overdue.length + taskAlerts.dueSoon.length) :
+          k === "areas"     ? new Set(taskAlerts.overdue.map(t => t.area)).size : 0;
+        // Sum badges across a section's sub-tabs
+        const sectionBadge = (s) => s.tabs.reduce((sum, k) => sum + (tabBadge(k) || 0), 0);
+        // Which section the current tab belongs to
+        const activeSection = TAB_TO_SECTION[tab] || 'home';
+        const activeSec = NAV_SECTIONS.find(s => s.key === activeSection) || NAV_SECTIONS[0];
+        // Tab metadata lookup
+        const tabMeta = (k) => TABS.find(t => t.key === k) || { key:k, label:k, icon:'' };
+        return (
+          <>
+            {/* Primary section row */}
+            <nav style={{ display:"flex", background: T.bgElev, borderBottom:`1px solid ${T.line}`, padding:"0 12px", gap: 4 }}>
+              {NAV_SECTIONS.map(s => {
+                const active = activeSection === s.key;
+                const badge = sectionBadge(s);
+                return (
+                  <button key={s.key} onClick={() => {
+                    // Tap a section → jump to the first sub-tab that isn't the
+                    // current one (or the first sub-tab if we're outside this section)
+                    if (active) return;
+                    setTab(s.tabs[0]);
+                  }} style={{
+                    padding:"14px 18px", background:"none", border:"none",
+                    borderBottom: active ? `3px solid ${s.accent}` : "3px solid transparent",
+                    color: active ? s.accent : T.inkSoft,
+                    fontFamily: T.fontBody, fontWeight: active ? 700 : 500, fontSize: 14,
+                    cursor:"pointer", display:"flex", alignItems:"center", gap: 8,
+                    whiteSpace:"nowrap", position:"relative", letterSpacing:"0.02em"
+                  }}>
+                    <span style={{ fontSize: 16 }}>{s.icon}</span>{s.label}
+                    {badge > 0 && <span style={{ background: T.danger, color:"white", borderRadius: 10, padding:"1px 6px", fontSize: 9, fontWeight: 700, marginLeft: 4, lineHeight: "14px" }}>{badge}</span>}
+                  </button>
+                );
+              })}
+            </nav>
+            {/* Secondary sub-tab row (only when active section has >1 tab) */}
+            {activeSec.tabs.length > 1 && (
+              <nav className="ab-scroll" style={{ display:"flex", background: T.bgCard, borderBottom:`1px solid ${T.line}`, padding:"0 12px", overflowX:"auto", gap: 0 }}>
+                {activeSec.tabs.map(k => {
+                  const t = tabMeta(k);
+                  const active = tab === k;
+                  const badge = tabBadge(k);
+                  return (
+                    <button key={k} onClick={() => setTab(k)} style={{
+                      padding:"10px 14px", background:"none", border:"none",
+                      borderBottom: active ? `2px solid ${activeSec.accent}` : "2px solid transparent",
+                      color: active ? activeSec.accent : T.inkSoft,
+                      fontFamily: T.fontBody, fontWeight: active ? 700 : 500, fontSize: 12,
+                      cursor:"pointer", display:"flex", alignItems:"center", gap: 5,
+                      whiteSpace:"nowrap", position:"relative"
+                    }}>
+                      <span style={{ fontSize: 13 }}>{t.icon}</span>{t.label}
+                      {badge > 0 && <span style={{ background: T.danger, color:"white", borderRadius: 9, padding:"0 5px", fontSize: 8, fontWeight: 700, marginLeft: 3, lineHeight: "13px" }}>{badge}</span>}
+                    </button>
+                  );
+                })}
+              </nav>
+            )}
+          </>
+        );
+      })()}
 
-      {/* Mobile: Horizontal-scrollable bottom nav */}
-      {mobile && (
-        <nav className="ab-scroll" style={{
-          position:"fixed", bottom: 0, left: 0, right: 0, zIndex: 999,
-          display:"flex", overflowX:"auto",
-          background: T.bgCard, borderTop: `1px solid ${T.line}`,
-          boxShadow: "0 -2px 10px rgba(31,45,30,0.06)",
-          // iOS safe-area: bottom for home-indicator (already present), left/right for landscape side-notches.
-          padding: "6px calc(8px + env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) calc(8px + env(safe-area-inset-left, 0px))",
-          gap: 2
-        }}>
-          {TABS.map(t => {
-            const active = tab === t.key;
-            const badge =
-              t.key === "inventory" ? inventoryAlerts.shortages.length :
-              t.key === "dashboard" ? inventoryAlerts.upcomingNeeds.filter(n => !n.sufficient).length :
-              t.key === "tasks"     ? (taskAlerts.overdue.length + taskAlerts.dueSoon.length) :
-              // Areas badge = areas-with-overdue-tasks, not raw overdue-task count.
-              t.key === "areas"     ? new Set(taskAlerts.overdue.map(t => t.area)).size :
-              0;
-            const accent = t.group === "abundance" ? T.rice : T.corn;
-            return (
-              <button key={t.key} onClick={() => { setTab(t.key); window.scrollTo(0,0); }} style={{
-                flex:"0 0 auto", minWidth: 68,
-                display:"flex", flexDirection:"column", alignItems:"center", gap: 2,
-                background: active ? T.bgElev : "none", border: "none", padding: "8px 10px",
-                borderRadius: T.radiusSm, position: "relative",
-                color: active ? accent : T.inkMute, cursor:"pointer",
-                fontFamily: T.fontBody
+      {/* Mobile nav — 5 fixed sections at the bottom + a sub-tab strip just
+          above when the active section has multiple sub-pages. Replaces the
+          old 16-tab horizontal scroller that overflowed off-screen. */}
+      {mobile && (() => {
+        const tabBadge = (k) =>
+          k === "inventory" ? inventoryAlerts.shortages.length :
+          k === "dashboard" ? inventoryAlerts.upcomingNeeds.filter(n => !n.sufficient).length :
+          k === "tasks"     ? (taskAlerts.overdue.length + taskAlerts.dueSoon.length) :
+          k === "areas"     ? new Set(taskAlerts.overdue.map(t => t.area)).size : 0;
+        const sectionBadge = (s) => s.tabs.reduce((sum, k) => sum + (tabBadge(k) || 0), 0);
+        const activeSection = TAB_TO_SECTION[tab] || 'home';
+        const activeSec = NAV_SECTIONS.find(s => s.key === activeSection) || NAV_SECTIONS[0];
+        const tabMeta = (k) => TABS.find(t => t.key === k) || { key:k, label:k, icon:'' };
+        return (
+          <>
+            {/* Secondary sub-tab strip — only when active section has >1 tab.
+                Lives just above the section row, scrolls horizontally. */}
+            {activeSec.tabs.length > 1 && (
+              <nav className="ab-scroll" style={{
+                position:"fixed", bottom: "calc(64px + env(safe-area-inset-bottom, 0px))",
+                left: 0, right: 0, zIndex: 998,
+                display:"flex", overflowX:"auto",
+                background: T.bgElev, borderTop:`1px solid ${T.line}`,
+                padding: "4px calc(8px + env(safe-area-inset-right, 0px)) 4px calc(8px + env(safe-area-inset-left, 0px))",
+                gap: 2
               }}>
-                <span style={{ fontSize: 18, lineHeight: 1, position:"relative" }}>
-                  {t.icon}
-                  {badge > 0 && <span style={{ position:"absolute", top:-4, right:-8, background: T.danger, color:"white", borderRadius: 8, padding:"0 4px", fontSize: 8, fontWeight: 700, lineHeight: "14px", minWidth: 14, textAlign:"center" }}>{badge}</span>}
-                </span>
-                <span style={{ fontSize: 9, fontWeight: active ? 700 : 500, letterSpacing: "0.05em" }}>{t.label}</span>
-                {active && <div style={{ width: 20, height: 2, borderRadius: 1, background: accent, marginTop: 1 }} />}
-              </button>
-            );
-          })}
-        </nav>
-      )}
+                {activeSec.tabs.map(k => {
+                  const t = tabMeta(k);
+                  const active = tab === k;
+                  const badge = tabBadge(k);
+                  return (
+                    <button key={k} onClick={() => { setTab(k); window.scrollTo(0,0); }} style={{
+                      flex:"0 0 auto",
+                      display:"flex", alignItems:"center", gap: 4,
+                      background: active ? T.bgCard : "transparent", border: "none",
+                      padding: "6px 12px", borderRadius: T.radiusSm,
+                      color: active ? activeSec.accent : T.inkSoft, cursor:"pointer",
+                      fontSize: 11, fontWeight: active ? 700 : 500, whiteSpace:"nowrap",
+                      position:"relative", fontFamily: T.fontBody
+                    }}>
+                      <span style={{ fontSize: 12 }}>{t.icon}</span>{t.label}
+                      {badge > 0 && <span style={{ background: T.danger, color:"white", borderRadius: 8, padding:"0 4px", fontSize: 8, fontWeight: 700, marginLeft: 3, lineHeight: "13px" }}>{badge}</span>}
+                    </button>
+                  );
+                })}
+              </nav>
+            )}
+            {/* Primary section row — fixed bottom, 5 buttons, evenly spaced */}
+            <nav style={{
+              position:"fixed", bottom: 0, left: 0, right: 0, zIndex: 999,
+              display:"flex",
+              background: T.bgCard, borderTop: `1px solid ${T.line}`,
+              boxShadow: "0 -2px 10px rgba(31,45,30,0.06)",
+              padding: "6px calc(0px + env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) calc(0px + env(safe-area-inset-left, 0px))",
+            }}>
+              {NAV_SECTIONS.map(s => {
+                const active = activeSection === s.key;
+                const badge = sectionBadge(s);
+                return (
+                  <button key={s.key} onClick={() => {
+                    if (active) return;
+                    setTab(s.tabs[0]); window.scrollTo(0,0);
+                  }} style={{
+                    flex: 1,
+                    display:"flex", flexDirection:"column", alignItems:"center", gap: 2,
+                    background: active ? T.bgElev : "transparent", border: "none", padding: "8px 4px",
+                    borderRadius: T.radiusSm, position: "relative",
+                    color: active ? s.accent : T.inkMute, cursor:"pointer",
+                    fontFamily: T.fontBody
+                  }}>
+                    <span style={{ fontSize: 20, lineHeight: 1, position:"relative" }}>
+                      {s.icon}
+                      {badge > 0 && <span style={{ position:"absolute", top:-4, right:-8, background: T.danger, color:"white", borderRadius: 8, padding:"0 4px", fontSize: 8, fontWeight: 700, lineHeight: "14px", minWidth: 14, textAlign:"center" }}>{badge}</span>}
+                    </span>
+                    <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, letterSpacing: "0.04em" }}>{s.label}</span>
+                    {active && <div style={{ width: 20, height: 2, borderRadius: 1, background: s.accent, marginTop: 1 }} />}
+                  </button>
+                );
+              })}
+            </nav>
+          </>
+        );
+      })()}
 
-      <main style={{ maxWidth: 960, margin:"0 auto", padding: mobile ? "8px 16px 32px" : "12px 24px 40px", boxSizing:"border-box", overflowX:"hidden" }}>
+      {/* Bottom padding on mobile must clear:
+            - the primary section row (~64px tall)
+            - the optional sub-tab strip (~32px tall, only when active section has >1 tab)
+            - iOS home-indicator safe-area
+          Total ~120px for sections-with-sub-tabs, 90px for sections without. */}
+      <main style={{
+        maxWidth: 960, margin:"0 auto",
+        padding: mobile
+          ? `8px 16px calc(${(NAV_SECTIONS.find(s => s.key === (TAB_TO_SECTION[tab] || 'home'))?.tabs.length || 1) > 1 ? '120px' : '90px'} + env(safe-area-inset-bottom, 0px)) 16px`
+          : "12px 24px 40px",
+        boxSizing:"border-box", overflowX:"hidden"
+      }}>
         {tab === "today" && <TodayView monthIdx={monthIdx} weather={weather} taskState={taskState} toggleTask={toggleAbTask} areas={areas} inventoryAlerts={inventoryAlerts} allTasks={allTasks} />}
         {tab === "calendar" && <CalendarView monthIdx={monthIdx} />}
         {tab === "dashboard" && <Dashboard tasks={allTasks} areas={areas} schedules={schedules} purchases={purchases} harvestLogs={harvestLogs} laborLogs={laborLogs} inventoryAlerts={inventoryAlerts} supervisors={supervisors} />}

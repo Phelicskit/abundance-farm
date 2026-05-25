@@ -33,7 +33,7 @@ if git diff --cached --quiet; then
   echo "Nothing to commit — repo is already clean."
 else
   echo ">> Committing..."
-  git commit -m "3 more: yield-trend sparklines, procurement quotation log, NDVI anomaly advisor
+  git commit -m "Restructure nav: collapse 16 tabs into 5 farm-cycle sections
 
 Adds automated test coverage for the NDVI feature shipped in 7e3b951.
 While writing the tests one real bug surfaced — the ISO week-year
@@ -78,6 +78,41 @@ Test totals after this commit:
   - Frontend stress: 63 tests passing (was 45, +18)
   - FAA units: 8 tests
   - JSX parses cleanly: 842,924 bytes
+
+User report: 'There are too many menu below the app. Can we make the user
+interface simpler? Add more flow to it based on the natural cycle for the
+operation in the farm.' The bottom nav had grown to 16 tabs that scrolled
+off-screen on mobile; this commit collapses them into 5 sections organised
+around the natural cycle of farm operations.
+
+New NAV_SECTIONS structure (defined right after TABS in index.html):
+  🏠 Home      → today
+  🌾 Field     → tasks, areas, breeds, weather, cropguide, calendar
+  📦 Inventory → inventory, equipment
+  ₱  Money     → prices, accounting, cashflow, forecasts, advisor, dashboard
+  ⋯  More      → tips
+
+TAB_TO_SECTION lookup map built at startup so we can highlight the right
+section regardless of which sub-tab is active.
+
+Mobile nav: 5 fixed-width section buttons at the bottom, evenly distributed
+(was horizontal-scroller of 16 buttons). When the active section has more
+than one sub-tab, a secondary scrollable strip appears just ABOVE the
+section row showing those sub-tabs. Main content's bottom padding adjusts
+dynamically (90px for sections-without-sub-tabs, 120px otherwise) to clear
+both rows plus iOS safe-area-inset-bottom.
+
+Desktop nav: 5 large section buttons across the top with 3px accent underline
+for the active section. When the active section has >1 sub-tab a secondary
+row appears just below with smaller buttons and 2px accent underline. Both
+rows show per-tab red badge counts (overdue tasks, low stock, etc.) and the
+section row sums its sub-tabs' badges.
+
+All existing tab keys, state, deep links, and tab body components preserved
+— this is purely a navigation refactor. The user's setTab(k) calls inside
+existing pages keep working; the nav just visually groups them.
+
+3 more (from prior commit 5222c52, restated):
 
 1. MULTI-CYCLE YIELD TREND SPARKLINE
    Each Dashboard per-area card now shows 'Yield trend' with a tiny SVG
