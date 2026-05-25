@@ -33,7 +33,7 @@ if git diff --cached --quiet; then
   echo "Nothing to commit — repo is already clean."
 else
   echo ">> Committing..."
-  git commit -m "3 high-impact additions: Excel backup, weather-task risk, supervisor monthly statement
+  git commit -m "3 more: yield-trend sparklines, procurement quotation log, NDVI anomaly advisor
 
 Adds automated test coverage for the NDVI feature shipped in 7e3b951.
 While writing the tests one real bug surfaced — the ISO week-year
@@ -79,7 +79,39 @@ Test totals after this commit:
   - FAA units: 8 tests
   - JSX parses cleanly: 842,924 bytes
 
-1. EXCEL ONE-CLICK BACKUP
+1. MULTI-CYCLE YIELD TREND SPARKLINE
+   Each Dashboard per-area card now shows 'Yield trend' with a tiny SVG
+   sparkline of the last up-to-6 harvest t/ha values for that plot, plus
+   the latest reading, trend arrow (↗/↘/→), and delta-vs-first-cycle.
+   Color: green if up >0.3 t/ha, red if down >0.3, grey neutral.
+   Spots improving vs declining plots over years at a glance.
+
+2. PROCUREMENT QUOTATION LOG
+   New 'Quotes' sub-tab on Inventory. Per-item table shows all logged
+   supplier quotes sorted cheapest-first, with: vs-cheapest delta,
+   vs-last-paid delta (pulled from Purchases), valid-until date, notes.
+   Cheapest non-expired quote highlighted green. Expired quotes fade to
+   gray with EXPIRED tag. Lets you walk into supplier negotiations
+   armed with paper-trail leverage.
+
+3. NDVI ANOMALY DASHBOARD ADVISOR
+   New sampleNdviFromImage(dataUrl) helper samples NDVI snapshot pixels
+   via Canvas to estimate scene mean (g-r)/(g+r) approximation. Skips
+   transparent/white/black/watermark pixels. Each Sentinel-2 thumbnail
+   the NdviTimeline loads now also writes its sampled mean to a new
+   rfops-ndviStats synced state ({areaId}:{date} → {mean, computedAt}).
+
+   New ADVISORY_RULES rule ndviDrop walks each area's time-series and
+   flags any active plot whose latest reading is ≥ 0.10 below its prior
+   reading from at least 5 days ago. 'High' severity if drop > 0.20.
+   Estimated peso impact: drop × area_ha × 5000 (rough yield-risk proxy).
+   Tells you to walk the field today and take a diagnose photo.
+
+Refactor: threaded laborLogs + cashAdvances into SupervisorsPanel,
+threaded fertilizerPrices + weather + ndviStats into AdvisorTab,
+threaded ndviStats + setter into AreasManager → NdviTimeline.
+
+3 high-impact additions:
    New ExcelBackupPanel at the top of the Inventory → Stock Levels tab.
    Loads SheetJS via CDN, builds a multi-sheet .xlsx with one sheet per
    synced-state key (~20 sheets). README sheet at the front lists what's

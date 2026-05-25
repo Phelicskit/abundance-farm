@@ -1264,6 +1264,48 @@ function Dashboard(props) {
                   </div>
                 )}
 
+                {/* Multi-cycle yield trend — sparkline of t/ha across the last
+                    6 harvests for this area. Lets the owner see at a glance
+                    which plots are improving vs. declining over years.   */}
+                {(() => {
+                  const cycles = (harvestLogs || [])
+                    .filter(h => h.area === a.name && (h.totalKg || 0) > 0 && (a.ha || 0) > 0)
+                    .sort((x, y) => (x.date || '').localeCompare(y.date || ''))
+                    .map(h => ({ tha: (h.totalKg / 1000) / a.ha, date: h.date, season: h.season }))
+                    .slice(-6);
+                  if (cycles.length < 2) return null;
+                  const ys = cycles.map(c => c.tha);
+                  const min = Math.min(...ys, 3), max = Math.max(...ys, 5.5);
+                  const range = (max - min) || 1;
+                  const W = 110, H = 26;
+                  const pts = ys.map((y, i) => {
+                    const x = (i / (ys.length - 1)) * (W - 4) + 2;
+                    const py = H - 2 - ((y - min) / range) * (H - 4);
+                    return `${x.toFixed(1)},${py.toFixed(1)}`;
+                  }).join(' ');
+                  const first = ys[0], last = ys[ys.length - 1];
+                  const delta = last - first;
+                  const trendColor = delta > 0.3 ? "#2e7d32" : delta < -0.3 ? "#c62828" : "#888";
+                  const trendIcon = delta > 0.3 ? '↗' : delta < -0.3 ? '↘' : '→';
+                  return (
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10, fontSize:10, color:"#666" }}>
+                      <span style={{ fontWeight:700, color:"#555" }}>📈 Yield trend</span>
+                      <svg width={W} height={H} style={{ display:"block" }}>
+                        <polyline fill="none" stroke={trendColor} strokeWidth="1.5" points={pts} />
+                        {ys.map((y, i) => {
+                          const x = (i / (ys.length - 1)) * (W - 4) + 2;
+                          const py = H - 2 - ((y - min) / range) * (H - 4);
+                          return <circle key={i} cx={x} cy={py} r="2" fill={trendColor} />;
+                        })}
+                      </svg>
+                      <span style={{ color: trendColor, fontWeight:700 }}>
+                        {trendIcon} {last.toFixed(1)} t/ha
+                      </span>
+                      <span style={{ color:"#999" }}>(last {cycles.length} cycles · {delta > 0 ? '+' : ''}{delta.toFixed(1)} vs first)</span>
+                    </div>
+                  );
+                })()}
+
                 {/* Next task */}
                 {a.nextTask && (
                   <div style={{ background:"#f5f5f0", borderRadius:8, padding:"8px 12px", display:"flex", alignItems:"center", gap:8, fontSize:12 }}>
@@ -1757,6 +1799,52 @@ function daysFromTransplant(targetIso, transplantIso) {
   return Math.round((d2 - d1) / 86400000);
 }
 
+// Approximate the mean NDVI of an NDVI image (data URL or http URL) by
+// sampling pixel colors through a Canvas. Sentinel Hub's default NDVI WMS
+// layer uses a red→yellow→green color ramp; the (G-R)/(G+R) approximation
+// captures the trend (negative when red dominates, positive when green
+// dominates), which is good enough to detect week-over-week deltas.
+// Returns a Promise that resolves to a number in roughly [-1, +1], or null
+// if the image fails to load or contains no usable pixels (e.g. fully cloudy
+// or fully transparent). Skips near-white and near-black pixels (backdrop
+// / no-data) and Sentinel Hub's "Copernicus / Europe's eyes on Earth"
+// watermark area (bottom ~12% of the image).
+function sampleNdviFromImage(imgUrl) {
+  return new Promise((resolve) => {
+    if (typeof Image === 'undefined' || typeof document === 'undefined') return resolve(null);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const W = 32, H = 32;
+        const canvas = document.createElement('canvas');
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, W, H);
+        const data = ctx.getImageData(0, 0, W, H).data;
+        let sum = 0, count = 0;
+        const watermarkCutoff = Math.floor(H * 0.88);
+        for (let y = 0; y < H; y++) {
+          for (let x = 0; x < W; x++) {
+            if (y >= watermarkCutoff) continue;  // skip watermark band
+            const i = (y * W + x) * 4;
+            const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+            if (a < 128) continue;
+            if (r > 245 && g > 245 && b > 245) continue;  // near-white backdrop
+            if (r < 10 && g < 10 && b < 10) continue;     // near-black no-data
+            const ndvi = (g - r) / (g + r + 1);
+            sum += ndvi;
+            count++;
+          }
+        }
+        resolve(count > 0 ? sum / count : null);
+      } catch (e) { resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    img.src = imgUrl;
+  });
+}
+
 // ============================================================
 // NDVI TIMELINE — weekly Sentinel-2 NDVI snapshots per area
 // ============================================================
@@ -1767,7 +1855,7 @@ function daysFromTransplant(targetIso, transplantIso) {
 // Flowering, Harvest) are marked on the closest pass. Click any thumbnail
 // to enlarge with full date + cloud cover + days-from-transplant context.
 // "Backfill" button fetches all known passes in parallel up to a limit.
-function NdviTimeline({ area, sched, mobile }) {
+function NdviTimeline({ area, sched, mobile, ndviStats, setNdviStats }) {
   const [passes, setPasses] = useState(null);   // [{ date, cloudCoverPercentage }] from /api/ndvi-history
   const [loadingPasses, setLoadingPasses] = useState(false);
   const [images, setImages] = useState({});      // { date: 'data:image/png;base64,...' | 'loading' | 'failed' }
@@ -1832,6 +1920,22 @@ function NdviTimeline({ area, sched, mobile }) {
       } else {
         setImages(prev => ({ ...prev, [date]: j.image }));
         setStats(s => ({ ...s, [j.cached ? 'cached' : 'fetched']: s[j.cached ? 'cached' : 'fetched'] + 1 }));
+        // Asynchronously sample the image to get an approximate NDVI mean
+        // and store it for the anomaly advisor. Best-effort — failures
+        // (CORS, missing canvas, etc.) are silently ignored.
+        if (setNdviStats) {
+          const statKey = `${area.id}:${date}`;
+          const existingMean = ndviStats && ndviStats[statKey] && ndviStats[statKey].mean;
+          if (existingMean == null) {
+            sampleNdviFromImage(j.image).then(mean => {
+              if (mean == null || isNaN(mean)) return;
+              setNdviStats(prev => ({
+                ...(prev || {}),
+                [statKey]: { mean, computedAt: new Date().toISOString() },
+              }));
+            }).catch(() => {});
+          }
+        }
       }
     } catch (e) {
       setImages(prev => ({ ...prev, [date]: 'failed' }));
@@ -3867,7 +3971,7 @@ function SupervisorsPanel({ supervisors, setSupervisors, areas, harvestLogs, lab
   );
 }
 
-function AreasManager({ areas, setAreas, schedules, breeds, taskMeta, setTaskMeta, customTasks, setCustomTasks, harvestLogs, setHarvestLogs, laborLogs, setLaborLogs, purchases, cashAdvances, setCashAdvances, equipment, fuelLogs, setFuelLogs, auth, supervisors, setSupervisors, sprayLogs, setSprayLogs, diagnoses, setDiagnoses, mapsConfig, fertilizerPrices, setFertilizerPrices }) {
+function AreasManager({ areas, setAreas, schedules, breeds, taskMeta, setTaskMeta, customTasks, setCustomTasks, harvestLogs, setHarvestLogs, laborLogs, setLaborLogs, purchases, cashAdvances, setCashAdvances, equipment, fuelLogs, setFuelLogs, auth, supervisors, setSupervisors, sprayLogs, setSprayLogs, diagnoses, setDiagnoses, mapsConfig, fertilizerPrices, setFertilizerPrices, ndviStats, setNdviStats }) {
   // Track Google Maps auth failure so we can swap GoogleParcelMap → ParcelMap
   // reactively. Initial value reads the global flag in case Google failed
   // earlier in the session and the user is opening a new area. Listener picks
@@ -4364,7 +4468,7 @@ function AreasManager({ areas, setAreas, schedules, breeds, taskMeta, setTaskMet
 
           {/* Sub-tab: NDVI Timeline — weekly Sentinel-2 vegetation snapshots */}
           {subTab === "ndvi" && a.name && (
-            <NdviTimeline area={a} sched={sched} mobile={mobile} />
+            <NdviTimeline area={a} sched={sched} mobile={mobile} ndviStats={ndviStats} setNdviStats={setNdviStats} />
           )}
         </div>
       ) : (
@@ -7621,6 +7725,65 @@ const ADVISORY_RULES = [
     };
   },
 
+  // C1d: NDVI vegetation-health drop. Walks the cached NDVI scene-mean
+  // time-series (sampled from snapshot images by NdviTimeline) per area
+  // and flags any plot whose latest reading is ≥ 0.10 below its prior
+  // reading from at least 5 days ago. Likely indicates pest pressure,
+  // disease, drainage issue, or fertilizer not landing. Surfaces well
+  // before the eye can spot it from the ground.
+  function ndviDrop({ areas, ndviStats }) {
+    if (!ndviStats || !areas || areas.length === 0) return null;
+    // Group cached stats by areaId
+    const byArea = {};
+    Object.entries(ndviStats).forEach(([key, val]) => {
+      if (!val || val.mean == null) return;
+      const [areaIdStr, date] = key.split(':');
+      const areaId = Number(areaIdStr);
+      if (!byArea[areaId]) byArea[areaId] = [];
+      byArea[areaId].push({ date, mean: Number(val.mean) });
+    });
+    const advisories = [];
+    Object.entries(byArea).forEach(([areaIdStr, series]) => {
+      const areaId = Number(areaIdStr);
+      const area = areas.find(a => a.id === areaId);
+      if (!area || area.status !== 'Active') return;
+      if (series.length < 2) return;
+      series.sort((a, b) => a.date.localeCompare(b.date));
+      const latest = series[series.length - 1];
+      // Find the most recent prior reading at least 5 days before the latest
+      const latestT = new Date(latest.date).getTime();
+      let prior = null;
+      for (let i = series.length - 2; i >= 0; i--) {
+        const gap = (latestT - new Date(series[i].date).getTime()) / 86400000;
+        if (gap >= 5) { prior = series[i]; break; }
+      }
+      if (!prior) return;
+      const drop = prior.mean - latest.mean;
+      if (drop < 0.10) return;  // not a significant drop
+      const gapDays = Math.round((latestT - new Date(prior.date).getTime()) / 86400000);
+      // Rough estimated impact: each 0.1 NDVI drop ≈ 5-10% yield risk on
+      // remaining cycle. At ~5 t/ha × 8 ha × ₱22/kg × 5% = ₱44k. Use a
+      // simple proxy: drop × area_ha × 5000.
+      const pesoImpact = Math.round(drop * (area.ha || 1) * 5000);
+      advisories.push({
+        id: 'ndvi-drop-' + areaId,
+        category: 'risk',
+        severity: drop > 0.20 ? 'high' : 'medium',
+        title: `${area.name}: NDVI dropped ${drop.toFixed(2)} in ${gapDays} days — vegetation stress`,
+        detail: `Sentinel-2 imagery shows the plot's mean vegetation index fell from ${prior.mean.toFixed(2)} on ${prior.date} to ${latest.mean.toFixed(2)} on ${latest.date}. A drop of this size in under two weeks usually means pest outbreak, disease, drainage failure, or fertilizer that didn't reach the plant. Walk this field today and take photos through Field Diagnose. If you spot the cause, treat within 48-72 hours to minimise yield loss.`,
+        pesoImpact,
+        horizon: 'Walk field today',
+        link: 'areas',
+        evidence: [
+          `${prior.date} NDVI ≈ ${prior.mean.toFixed(2)}`,
+          `${latest.date} NDVI ≈ ${latest.mean.toFixed(2)}`,
+          `Drop: ${drop.toFixed(2)} over ${gapDays} days`,
+        ],
+      });
+    });
+    return advisories.length > 0 ? advisories : null;
+  },
+
   // C2: AWD irrigation savings (only if any area currently on default flooded protocol AND no AWD tasks done)
   function awdSavings({ areas, allTasks }) {
     const flooded = (areas || []).filter(a => a.status === 'Active' && a.protocol !== 'kadanny' && !(a.plantingMethod || '').includes('direct'));
@@ -8072,7 +8235,7 @@ function AdvisorTab({
   purchases, harvestLogs, laborLogs, cashAdvances, fuelLogs, maintenanceLogs, electricityBills,
   areas, schedules, breeds, allTasks, supervisors, diagnoses, inventoryAlerts,
   openingCash, recurringObligations, cashflowSettings, forecastOverrides,
-  fertilizerPrices, weather,
+  fertilizerPrices, weather, ndviStats,
 }) {
   const mobile = useIsMobile();
   const [priceLog, setPriceLog] = useState([]);
@@ -8094,9 +8257,9 @@ function AdvisorTab({
 
   const advisories = useMemo(() => runAdvisoryRules({
     purchases, harvestLogs, laborLogs, supervisors, areas, schedules, breeds, allTasks, diagnoses, priceLog, nfaFloor, inventoryAlerts,
-    fertilizerPrices, weather,
+    fertilizerPrices, weather, ndviStats,
     settings: cashflowSettings, cashflowForecast: cf,
-  }), [purchases, harvestLogs, laborLogs, supervisors, areas, schedules, breeds, allTasks, diagnoses, priceLog, nfaFloor, inventoryAlerts, fertilizerPrices, weather, cashflowSettings, cf]);
+  }), [purchases, harvestLogs, laborLogs, supervisors, areas, schedules, breeds, allTasks, diagnoses, priceLog, nfaFloor, inventoryAlerts, fertilizerPrices, weather, ndviStats, cashflowSettings, cf]);
 
   const filtered = advisories.filter(a => categoryFilter === 'all' || a.category === categoryFilter).filter(a => !dismissed[a.id]);
   const totalImpact = filtered.reduce((s, a) => s + (a.pesoImpact || 0), 0);
@@ -9652,6 +9815,174 @@ function UpcomingFertilizerNeeds({ areas, allTasks, stockMap, fertilizerPrices, 
 }
 
 // ============================================================
+// PROCUREMENT QUOTATION LOG
+// ============================================================
+// Track supplier price quotes before committing to a purchase. For each
+// quote: who, what, ₱/bag, valid-until date, notes. The panel groups quotes
+// by item so you can see "for 14-14-14, I have 3 quotes ranging ₱1700-1850
+// — go with Cagayan Agri Supply at ₱1700". Gives negotiation leverage and
+// a paper trail. Optional: link a quotation to the subsequent purchase
+// for audit (not strictly required — useful for kickback detection).
+function QuotationLogPanel({ quotations, setQuotations, inventoryItems, purchases, mobile }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+  const validDefault = new Date(); validDefault.setDate(validDefault.getDate() + 14);
+  const blankDraft = () => ({ date: today, item: inventoryItems[0] || '14-14-14', supplier: '', pricePerBag: '', validUntil: validDefault.toISOString().slice(0, 10), notes: '' });
+  const [draft, setDraft] = useState(blankDraft);
+
+  const addQuote = () => {
+    const item = (draft.item || '').trim();
+    const supplier = (draft.supplier || '').trim();
+    const ppb = Number(draft.pricePerBag);
+    if (!item || !supplier || !ppb || ppb <= 0) {
+      alert('Need item, supplier, and a positive price per bag.');
+      return;
+    }
+    const id = quotations.length > 0 ? Math.max(...quotations.map(q => q.id || 0)) + 1 : 1;
+    setQuotations([...quotations, { id, ...draft, pricePerBag: ppb }]);
+    setDraft(blankDraft());
+    setShowAdd(false);
+  };
+
+  const removeQuote = (id) => {
+    if (!confirm('Delete this quotation?')) return;
+    setQuotations(quotations.filter(q => q.id !== id));
+  };
+
+  // Group by item, sort cheapest-first within each group
+  const grouped = useMemo(() => {
+    const out = {};
+    (quotations || []).forEach(q => {
+      if (!out[q.item]) out[q.item] = [];
+      out[q.item].push(q);
+    });
+    Object.keys(out).forEach(item => {
+      out[item].sort((a, b) => (a.pricePerBag || 0) - (b.pricePerBag || 0));
+    });
+    return out;
+  }, [quotations]);
+
+  // For each item, find the latest purchase price from purchases to compare
+  // (lets the owner see "your quotes are still better/worse than what you
+  // actually paid last time").
+  const lastPaidPerItem = useMemo(() => {
+    const out = {};
+    (purchases || []).forEach(p => {
+      const ppb = (p.unit === 'bags' || p.unit === 'bag') ? Number(p.unitCost) : Number(p.unitCost) * 50;
+      const date = p.date || '';
+      if (!out[p.item] || date > out[p.item].date) {
+        out[p.item] = { date, pricePerBag: ppb, supplier: p.supplier };
+      }
+    });
+    return out;
+  }, [purchases]);
+
+  // Mark expired quotes (validUntil < today)
+  const isExpired = (q) => q.validUntil && q.validUntil < today;
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+      <div style={{ background:"#fff8e1", borderLeft:"4px solid #f9a825", borderRadius:8, padding:"10px 14px", fontSize:11, color:"#5d4037", lineHeight:1.5 }}>
+        <strong>📋 Procurement quotation log.</strong> Before committing to a big fertilizer purchase, get 2-3 quotes from different suppliers and log them here. The panel groups quotes by item and highlights the cheapest. Compare against your last actual purchase to gauge negotiating room. Quotes auto-expire after their "valid until" date.
+      </div>
+
+      <div style={{ display:"flex", justifyContent:"flex-end" }}>
+        <button onClick={() => setShowAdd(!showAdd)} style={{ background: showAdd ? "#fff" : "#1565c0", color: showAdd ? "#1565c0" : "white", border: showAdd ? "1px solid #1565c0" : "none", borderRadius:8, padding:"8px 18px", fontSize:12, fontWeight:700, cursor:"pointer" }}>
+          {showAdd ? "Cancel" : "+ New Quote"}
+        </button>
+      </div>
+
+      {showAdd && (
+        <div style={{ background:"#e3f2fd", borderRadius:10, padding:14 }}>
+          <div style={{ display:"grid", gridTemplateColumns: mobile ? "1fr 1fr" : "repeat(6, 1fr)", gap:8, alignItems:"end" }}>
+            <label style={labelStyle}>Quote date
+              <input type="date" value={draft.date} onChange={e => setDraft({ ...draft, date: e.target.value })} style={inputStyle} />
+            </label>
+            <label style={labelStyle}>Item *
+              <select value={draft.item} onChange={e => setDraft({ ...draft, item: e.target.value })} style={inputStyle}>
+                {inventoryItems.map(it => <option key={it} value={it}>{it}</option>)}
+              </select>
+            </label>
+            <label style={labelStyle}>Supplier *
+              <input value={draft.supplier} onChange={e => setDraft({ ...draft, supplier: e.target.value })} placeholder="e.g. Cagayan Agri Supply" style={inputStyle} />
+            </label>
+            <label style={labelStyle}>₱ per bag *
+              <input type="number" min="0" step="any" value={draft.pricePerBag} onChange={e => setDraft({ ...draft, pricePerBag: e.target.value })} placeholder="1750" style={{ ...inputStyle, fontWeight:700, color:"#1565c0" }} />
+            </label>
+            <label style={labelStyle}>Valid until
+              <input type="date" value={draft.validUntil} onChange={e => setDraft({ ...draft, validUntil: e.target.value })} style={inputStyle} />
+            </label>
+            <label style={labelStyle}>Notes
+              <input value={draft.notes} onChange={e => setDraft({ ...draft, notes: e.target.value })} placeholder="MOQ, delivery..." style={inputStyle} />
+            </label>
+          </div>
+          <button onClick={addQuote} style={{ marginTop:10, background:"#1565c0", color:"white", border:"none", borderRadius:8, padding:"10px 22px", fontSize:13, fontWeight:700, cursor:"pointer" }}>+ Save Quote</button>
+        </div>
+      )}
+
+      {Object.keys(grouped).length === 0 ? (
+        <div style={{ padding:40, background:"white", borderRadius:14, textAlign:"center", color:"#bbb", fontSize:13 }}>
+          No quotations logged yet. Add one above to start tracking supplier prices for negotiation.
+        </div>
+      ) : (
+        Object.entries(grouped).map(([item, quotes]) => {
+          const lastPaid = lastPaidPerItem[item];
+          const cheapest = quotes.find(q => !isExpired(q));  // cheapest non-expired
+          return (
+            <div key={item} style={{ background:"white", borderRadius:14, boxShadow:"0 1px 4px rgba(0,0,0,.06)", overflow:"hidden" }}>
+              <div style={{ background:"#fff8e1", padding:"10px 14px", display:"flex", justifyContent:"space-between", alignItems:"baseline", flexWrap:"wrap", gap:8 }}>
+                <span style={{ fontWeight:800, fontSize:14, color:"#5d4037" }}>{item} <span style={{ color:"#888", fontWeight:500, fontSize:11 }}>({quotes.length} quote{quotes.length === 1 ? '' : 's'})</span></span>
+                {lastPaid && (
+                  <span style={{ fontSize:11, color:"#666" }}>
+                    Last paid: <strong>₱{Math.round(lastPaid.pricePerBag).toLocaleString()}/bag</strong>
+                    {lastPaid.supplier && <> at <em>{lastPaid.supplier}</em></>}
+                    <span style={{ color:"#999" }}> · {new Date(lastPaid.date).toLocaleDateString('en-PH', { month:'short', day:'numeric' })}</span>
+                  </span>
+                )}
+              </div>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                <thead><tr style={{ background:"#fafafa" }}>
+                  {["Supplier","₱/bag","vs cheapest","vs last paid","Valid until","Date","Notes",""].map(h => (
+                    <th key={h} style={{ padding:"7px 8px", textAlign:"left", fontWeight:700, color:"#555", borderBottom:"1px solid #eee", fontSize:10 }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {quotes.map(q => {
+                    const expired = isExpired(q);
+                    const isCheapest = cheapest && q.id === cheapest.id;
+                    const vsCheapest = cheapest ? q.pricePerBag - cheapest.pricePerBag : 0;
+                    const vsLast = lastPaid ? q.pricePerBag - lastPaid.pricePerBag : null;
+                    return (
+                      <tr key={q.id} style={{ borderBottom:"1px solid #f5f5f5", background: isCheapest ? "#e8f5e9" : expired ? "#fafafa" : "white", opacity: expired ? 0.5 : 1 }}>
+                        <td style={{ padding:"7px 8px", fontWeight: isCheapest ? 800 : 600, color: isCheapest ? "#1b5e20" : "#333" }}>
+                          {isCheapest && '✓ '}{q.supplier}
+                          {expired && <span style={{ marginLeft:6, fontSize:9, color:"#c62828", fontWeight:700 }}>EXPIRED</span>}
+                        </td>
+                        <td style={{ padding:"7px 8px", fontWeight:700, color: isCheapest ? "#1b5e20" : "#333" }}>₱{Math.round(q.pricePerBag).toLocaleString()}</td>
+                        <td style={{ padding:"7px 8px", fontSize:11, color: vsCheapest === 0 ? "#2e7d32" : "#c62828", fontWeight:600 }}>
+                          {vsCheapest === 0 ? '—' : `+₱${Math.round(vsCheapest)}`}
+                        </td>
+                        <td style={{ padding:"7px 8px", fontSize:11, fontWeight:600, color: vsLast == null ? "#bbb" : vsLast < 0 ? "#2e7d32" : vsLast > 0 ? "#c62828" : "#888" }}>
+                          {vsLast == null ? '—' : (vsLast === 0 ? 'same' : `${vsLast > 0 ? '+' : ''}₱${Math.round(vsLast)}`)}
+                        </td>
+                        <td style={{ padding:"7px 8px", fontSize:11, color:"#666" }}>{q.validUntil ? new Date(q.validUntil).toLocaleDateString('en-PH', { month:'short', day:'numeric' }) : '—'}</td>
+                        <td style={{ padding:"7px 8px", fontSize:11, color:"#888" }}>{q.date ? new Date(q.date).toLocaleDateString('en-PH', { month:'short', day:'numeric' }) : '—'}</td>
+                        <td style={{ padding:"7px 8px", fontSize:11, color:"#777" }}>{q.notes || ''}</td>
+                        <td style={{ padding:"7px 8px" }}><button onClick={() => removeQuote(q.id)} style={{ background:"#ffcdd2", color:"#c62828", border:"none", borderRadius:6, padding:"3px 8px", fontSize:11, cursor:"pointer" }}>×</button></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // EXCEL BACKUP PANEL — one-click full-state export to .xlsx
 // ============================================================
 // Every synced-state key becomes a worksheet (arrays → rows, dicts → flattened
@@ -9952,7 +10283,7 @@ function DemoDataPanel({ bag, mobile }) {
   );
 }
 
-function InventoryTracker({ purchases, setPurchases, usages, setUsages, areas, allTasks, inventoryItems, setInventoryItems, fertilizerPrices, setFertilizerPrices, fertilizerPriceHistory, setFertilizerPriceHistory, demoStateBag }) {
+function InventoryTracker({ purchases, setPurchases, usages, setUsages, areas, allTasks, inventoryItems, setInventoryItems, fertilizerPrices, setFertilizerPrices, fertilizerPriceHistory, setFertilizerPriceHistory, quotations, setQuotations, demoStateBag }) {
   const mobile = useIsMobile();
   const [showAddPurchase, setShowAddPurchase] = useState(false);
   const [showAddUsage, setShowAddUsage] = useState(false);
@@ -10087,7 +10418,7 @@ function InventoryTracker({ purchases, setPurchases, usages, setUsages, areas, a
 
       {/* Sub-tabs */}
       <div style={{ display:"flex", gap:6, background:"white", borderRadius:14, padding:8, boxShadow:"0 1px 4px rgba(0,0,0,.06)" }}>
-        {[["stock","📦 Stock Levels"],["purchases","🛒 Purchases"],["usage","📤 Usage Log"],["fertprices","💰 Fert Prices"]].map(([k,l]) => (
+        {[["stock","📦 Stock Levels"],["purchases","🛒 Purchases"],["usage","📤 Usage Log"],["fertprices","💰 Fert Prices"],["quotes","📋 Quotes"]].map(([k,l]) => (
           <button key={k} onClick={() => setViewTab(k)} style={{ padding:"8px 16px", borderRadius:8, border:"none", background: viewTab === k ? "#2e7d32" : "transparent", color: viewTab === k ? "white" : "#666", fontWeight: viewTab === k ? 700 : 500, fontSize:13, cursor:"pointer" }}>{l}</button>
         ))}
       </div>
@@ -10387,6 +10718,17 @@ function InventoryTracker({ purchases, setPurchases, usages, setUsages, areas, a
           setFertilizerPrices={setFertilizerPrices}
           fertilizerPriceHistory={fertilizerPriceHistory}
           setFertilizerPriceHistory={setFertilizerPriceHistory}
+          purchases={purchases}
+          mobile={mobile}
+        />
+      )}
+
+      {/* PROCUREMENT QUOTATION LOG */}
+      {viewTab === "quotes" && (
+        <QuotationLogPanel
+          quotations={quotations}
+          setQuotations={setQuotations}
+          inventoryItems={inventoryItems}
           purchases={purchases}
           mobile={mobile}
         />
@@ -14238,6 +14580,16 @@ function AppShell({ auth, mobile }) {
   // Sorted newest-first. Last 12 entries kept per item (~3 months at weekly cadence).
   // Auto-appended whenever the user edits a price.
   const [fertilizerPriceHistory, setFertilizerPriceHistory] = useSyncedState("rfops-fertilizerPriceHistory", {});
+  // Procurement quotation log. Each entry: { id, date, item, supplier,
+  // pricePerBag, validUntil, notes, linkedPurchaseId? }. Used to compare
+  // supplier offers before a big purchase so you can negotiate from data
+  // instead of memory. See QuotationLogPanel in InventoryTracker.
+  const [quotations, setQuotations] = useSyncedState("rfops-quotations", []);
+  // NDVI mean values per (areaId, date), sampled from snapshot images by the
+  // NdviTimeline component as each thumbnail loads. Used by the ndviDrop
+  // advisor rule to detect week-over-week vegetation health drops. Shape:
+  //   { "areaId:YYYY-MM-DD": { mean: 0.62, computedAt: "2026-05-25T03:00:00Z" } }
+  const [ndviStats, setNdviStats] = useSyncedState("rfops-ndviStats", {});
 
   // Abundance Farm state — also server-synced
   const [taskState, setTaskState] = useSyncedState("abundance-farm-tasks", {});
@@ -14657,7 +15009,7 @@ function AppShell({ auth, mobile }) {
         {tab === "today" && <TodayView monthIdx={monthIdx} weather={weather} taskState={taskState} toggleTask={toggleAbTask} areas={areas} inventoryAlerts={inventoryAlerts} allTasks={allTasks} />}
         {tab === "calendar" && <CalendarView monthIdx={monthIdx} />}
         {tab === "dashboard" && <Dashboard tasks={allTasks} areas={areas} schedules={schedules} purchases={purchases} harvestLogs={harvestLogs} laborLogs={laborLogs} inventoryAlerts={inventoryAlerts} supervisors={supervisors} />}
-        {tab === "areas" && <AreasManager areas={areas} setAreas={setAreas} schedules={schedules} breeds={breeds} taskMeta={taskMeta} setTaskMeta={setTaskMeta} customTasks={customTasks} setCustomTasks={setCustomTasks} harvestLogs={harvestLogs} setHarvestLogs={setHarvestLogs} laborLogs={laborLogs} setLaborLogs={setLaborLogs} purchases={purchases} cashAdvances={cashAdvances} setCashAdvances={setCashAdvances} equipment={equipment} fuelLogs={fuelLogs} setFuelLogs={setFuelLogs} auth={auth} supervisors={supervisors} setSupervisors={setSupervisors} sprayLogs={sprayLogs} setSprayLogs={setSprayLogs} diagnoses={diagnoses} setDiagnoses={setDiagnoses} mapsConfig={mapsConfig} fertilizerPrices={fertilizerPrices} setFertilizerPrices={setFertilizerPrices} />}
+        {tab === "areas" && <AreasManager areas={areas} setAreas={setAreas} schedules={schedules} breeds={breeds} taskMeta={taskMeta} setTaskMeta={setTaskMeta} customTasks={customTasks} setCustomTasks={setCustomTasks} harvestLogs={harvestLogs} setHarvestLogs={setHarvestLogs} laborLogs={laborLogs} setLaborLogs={setLaborLogs} purchases={purchases} cashAdvances={cashAdvances} setCashAdvances={setCashAdvances} equipment={equipment} fuelLogs={fuelLogs} setFuelLogs={setFuelLogs} auth={auth} supervisors={supervisors} setSupervisors={setSupervisors} sprayLogs={sprayLogs} setSprayLogs={setSprayLogs} diagnoses={diagnoses} setDiagnoses={setDiagnoses} mapsConfig={mapsConfig} fertilizerPrices={fertilizerPrices} setFertilizerPrices={setFertilizerPrices} ndviStats={ndviStats} setNdviStats={setNdviStats} />}
         {tab === "cropguide" && <CropsView />}
         {tab === "prices" && <PricesView monthIdx={monthIdx} purchases={purchases} auth={auth} />}
         {tab === "weather" && <WeatherView weather={weather} monthIdx={monthIdx} />}
@@ -14682,7 +15034,7 @@ function AppShell({ auth, mobile }) {
           purchases={purchases} harvestLogs={harvestLogs} laborLogs={laborLogs} cashAdvances={cashAdvances} fuelLogs={fuelLogs} maintenanceLogs={maintenanceLogs} electricityBills={electricityBills}
           areas={areas} schedules={schedules} breeds={breeds} allTasks={allTasks} supervisors={supervisors} diagnoses={diagnoses} inventoryAlerts={inventoryAlerts}
           openingCash={openingCash} recurringObligations={recurringObligations} cashflowSettings={cashflowSettings} forecastOverrides={forecastOverrides}
-          fertilizerPrices={fertilizerPrices} weather={weather}
+          fertilizerPrices={fertilizerPrices} weather={weather} ndviStats={ndviStats}
         />}
         {tab === "equipment" && <EquipmentTab equipment={equipment} setEquipment={setEquipment} maintenanceLogs={maintenanceLogs} setMaintenanceLogs={setMaintenanceLogs} fuelLogs={fuelLogs} setFuelLogs={setFuelLogs} toolInventory={toolInventory} setToolInventory={setToolInventory} />}
         {tab === "inventory" && <InventoryTracker
@@ -14692,6 +15044,7 @@ function AppShell({ auth, mobile }) {
           inventoryItems={inventoryItems} setInventoryItems={setInventoryItems}
           fertilizerPrices={fertilizerPrices} setFertilizerPrices={setFertilizerPrices}
           fertilizerPriceHistory={fertilizerPriceHistory} setFertilizerPriceHistory={setFertilizerPriceHistory}
+          quotations={quotations} setQuotations={setQuotations}
           /* Threading every setter through so the Demo Data panel at the bottom
              of the Inventory tab can populate (and wipe) all synced state. */
           demoStateBag={{
